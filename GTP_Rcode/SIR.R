@@ -210,3 +210,97 @@ SVsim=function(n,par){
   y=rnorm(n,0,exp(par[3]+x))
   return(list(x=x,y=y))
 }
+
+
+#######
+#SIR Filter for SV model
+#
+# x_t=phi x_{t-1}+N(0,sigma^2)
+# y_t= N(0,exp\{2(gamma+ x_t)\})
+#
+# input y: observation
+#      par: vector of parameters (phi,sigma,gamma)
+#      prior: vector of prior parameters (prior mn, prior sd) for x_1
+#      N: Number of particles
+#      truth: true state -- used for plots
+#      PLOT: produce plots of filtered density?
+#
+#  Output: matrix of approximate filtered mean and variance of X_t.
+#
+#######
+
+SIRfilterNoisyRV=function(N,y,par,prior,truth=NULL,PLOT=T)
+{
+   n=length(y) ##number of observations
+   d=1 ##dimension
+
+   ##(1)simulate particles
+  particles=matrix(0,nrow=N,ncol=d) ## particles: X_t^{(i)}
+  for(j in 1:d) particles[,j]=rnorm(N,prior[j],prior[j+d])
+
+   ##(2) calculate weights
+   w=dnorm(y[1],0,exp(par[3]+particles[,1]))
+
+  ##(3) log of estimate of likelihood
+  logl=log(mean(w))
+
+   ##OPTIONAL -- STORAGE OF FEATURES OF FILTER -- MEAN AND VAR
+   M.st=matrix(0,nrow=n,ncol=d)
+   V.st=matrix(0,nrow=n,ncol=d)
+   w=w/sum(w)
+   for(j in 1:d){
+     M.st[1,]=sum(w*particles[,j])
+     V.st[1,]=sum(w*particles[,j]^2)-M.st[1,]^2
+   }
+   ##PLOT
+   if(PLOT){
+   par(mfrow=c(1,2))
+   plot(range(particles[,1]),c(0,max(w)),xlab="X_t",ylab="Weight",type="n")
+   for(j in 1:N) lines(c(particles[j,1],particles[j,1]),c(0,w[j]))
+   if(length(truth>=1)) abline(v=truth[1],col=2)
+    plot(density(particles[,1],weights=w),xlab="X_t",ylab="Density",main="")
+
+    if(length(truth>=1)) abline(v=truth[1],col=2)
+ }
+     for(i in 2:n){##LOOP
+  ##(1) Resample
+      index=sample(1:N,prob=w,size=N,rep=T)
+      particles=particles[index,]
+      if(d==1) particles=matrix(particles,ncol=1)
+
+  ##(2) Propagate particles
+    #x_t=phi x_{t-1}+N(0,sigma^2); phi=par[1]; sigma=par[2]
+    particles[,1]=particles[,1]*par[1]+rnorm(N,0,par[2])
+
+
+  ##(3) Weight
+      w=dnorm(y[i],0,exp(par[3]+particles[,1]))
+
+  ##(4) update log of estimate of likelihood
+   logl=logl+log(mean(w))
+
+  ##OPTIONAL -- STORE FEATURES OF THE PARTICLE APPROXIMATION
+    #normalise weights
+    w=w/sum(w)
+    for(j in 1:d){
+     M.st[i,]=sum(w*particles[,j])
+     V.st[i,]=sum(w*particles[,j]^2)-M.st[i,]^2
+   }
+   ##PLOT
+      if(PLOT){
+   par(mfrow=c(1,1))
+     plot(density(particles[,1],weights=w),xlab="X_t",ylab="Density",main="")
+   if(length(truth>=i)) abline(v=truth[i],col=2)
+    }
+    }
+  return(list(mean=M.st,var=V.st,l=logl)) ##output summaries
+ }
+
+NoisyRVsim=function(n,sigmaRV,sigmaObs){
+
+  x=rep(0,n)
+  x[1]=rnorm(1,0,sigmaRV)
+  for(i in 2:n) x[i]=x[i-1]
+  y=rnorm(n,x,sigmaObs)
+  return(list(x=x,y=y))
+}
