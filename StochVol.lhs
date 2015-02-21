@@ -95,23 +95,47 @@ $$
 \end{align}
 $$
 
-Scribbles
-=========
+Algorithm
+---------
 
 $$
-f(h_t | h_{t^-}, \theta, y) = \frac{f(h, \theta, y)}{f(h_{t^-}, \theta, y)}
+\condprob{p}{x_t}{x_{t-1}, x_{t+1}, \boldsymbol{y}} \propto
+\exp{\bigg\{-\frac{1}{2}\bigg[ x_n + \frac{y_n^2}{e^{x_n}} + (x_t - m_t)^2/b^2 \bigg]  \bigg\}}
+$$
+
+where
+
+$$
+b^2 = \frac{\sigma^2}{1 + \beta^2}
 $$
 
 $$
-f(h_t | h_{t^-}, y) = \frac{f(h, y)}{f(h_{t^-}, y)}
+m_t = \frac{\alpha(1- \beta) + \beta(x_{t-1} + x_{t+1})}{1 + \beta^2}
 $$
 
 $$
-f(h_t | h_{t^-})f(y_t | h_t) = \frac{f(h)}{f(h_{t^-})} \frac{f(y_t, h_t)}{f(h_t)}
+\alpha = \mu - \alpha\mu
 $$
+
+$$
+\beta = \alpha
+$$
+
+$$
+b^2 = \frac{\sigma^2}{1 + \alpha^2}
+$$
+
+$$
+m_t = \frac{(\mu - \alpha\mu)(1- \alpha) + \alpha(x_{t-1} + x_{t+1})}{1 + \alpha^2}
+$$
+
+
 
 MCMC
 ====
+
+Standard Analysis
+-----------------
 
 To construct the chain we specify a non-informative prior for the parameters
 
@@ -130,12 +154,62 @@ $$
 with
 
 $$
-\Lambda_n = X^\top X  + \Lambda_0
+\Lambda_n = X_n^\top X_n  + \Lambda_0
 $$
+
+$$
+\begin{matrix}
+\mu_n = \Lambda_n^{-1}({X_n}^{\top}{X_n}\hat{\boldsymbol{\beta}}_n + \Lambda_0\mu_0) &
+\textrm{where} &
+\hat{\boldsymbol\beta}_n = (\boldsymbol{X}_n^{\rm T}\boldsymbol{X}_n)^{-1}\boldsymbol{X}_n^{\rm T}\boldsymbol{y}_n
+\end{matrix}
+$$
+
+$$
+\begin{matrix}
+a_n = \frac{n}{2} + a_0 & \quad &
+b_n = b_0 +
+      \frac{1}{2}(\boldsymbol{y}^\top\boldsymbol{y} +
+                  \boldsymbol{\mu}_0^\top\Lambda_0\boldsymbol{\mu}_0 -
+                  \boldsymbol{\mu}_n^\top\Lambda_n\boldsymbol{\mu}_n)
+\end{matrix}
+$$
+
+Recursive Form
+--------------
+
+We also have
 
 $$
 \Lambda_n = \boldsymbol{x}_n^\top \boldsymbol{x}_n  + \Lambda_{n-1}
 $$
+
+Furthermore
+
+$$
+\Lambda_{n}\mu_{n} =
+\boldsymbol{X}_{n}^{\rm T}\boldsymbol{y}_{n} + \Lambda_0\mu_0 =
+\boldsymbol{X}_{n-1}^{\rm T}\boldsymbol{y}_{n-1} + \boldsymbol{x}_n^\top y_n + \Lambda_0\mu_0 =
+\Lambda_{n-1}\mu_{n-1} + \boldsymbol{x}_n^\top y_n
+$$
+
+so we can write
+
+$$
+\boldsymbol{\mu}_n = \Lambda_n^{-1}(\Lambda_{n-1}\mu_{n-1} + \boldsymbol{x}_n^\top y_n)
+$$
+
+and
+
+$$
+\begin{matrix}
+a_n = a_{n-1} + \frac{1}{2} & \quad &
+b_n = b_{n-1} + \frac{1}{2}\big[(y_n - \boldsymbol{\mu}_n^\top \boldsymbol{x}_n)y_n + (\boldsymbol{\mu}_{n-1} - \boldsymbol{\mu}_{n})^\top \Lambda_{n-1}\boldsymbol{\mu}_{n-1}\big]
+\end{matrix}
+$$
+
+Specialising
+------------
 
 In the case of our model we can specialise these as
 
@@ -151,19 +225,148 @@ $$
 + \Lambda_0
 $$
 
-<span style="color: red">colour</span>
+$$
+\begin{matrix}
+\mu_n = (\Lambda_n)^{-1}({X_n}^{\top}{X_n}\hat{\boldsymbol{\beta}}_n + \Lambda_0\mu_0) &
+\textrm{where} &
+\hat{\boldsymbol\beta}_n = (\boldsymbol{X}_n^{\rm T}\boldsymbol{X}_n)^{-1}\boldsymbol{X}_n^{\rm T}\boldsymbol{x}_{2:n+1}
+\end{matrix}
+$$
 
 $$
-\color{blue}{
-B_t^{-1} = B_{t-1}^{-1} + \begin{bmatrix} 1 \\ x_{t-1} \end{bmatrix}
-                          \begin{bmatrix} 1 &  x_{t-1} \end{bmatrix}
-}
+\begin{matrix}
+a_n = \frac{n}{2} + a_0 & \quad &
+b_n = b_0 +
+      \frac{1}{2}(\boldsymbol{x}_{2:n+1}^\top\boldsymbol{x}_{2:n+1} +
+                  \boldsymbol{\mu}_0^\top\Lambda_0\boldsymbol{\mu}_0 -
+                  \boldsymbol{\mu}_n^\top\Lambda_n\boldsymbol{\mu}_n)
+\end{matrix}
 $$
 
+Hyperparameters
+===============
+
+Choose $X_0 \sim {\cal{N}}(m_0, C_0)$
+
+> {-# OPTIONS_GHC -Wall                      #-}
+> {-# OPTIONS_GHC -fno-warn-name-shadowing   #-}
+> {-# OPTIONS_GHC -fno-warn-type-defaults    #-}
+> {-# OPTIONS_GHC -fno-warn-unused-do-bind   #-}
+> {-# OPTIONS_GHC -fno-warn-missing-methods  #-}
+> {-# OPTIONS_GHC -fno-warn-orphans          #-}
+
+> {-# LANGUAGE RecursiveDo                   #-}
+
+> module StochVol where
+
+> import Numeric.LinearAlgebra.HMatrix
+> import Data.Random
+> import Data.Random.Source.PureMT
+> import Control.Monad
+> import Control.Monad.Fix
+> import Control.Monad.State.Lazy
+> import qualified Data.Vector as V
+
+> mu, phi, tau2, tau :: Double
+> mu   = -0.00645
+> phi  =  0.99
+> tau2 =  0.15^2
+> tau  = sqrt(tau2)
+
+> n :: Int
+> n = 500
+
+> h0 :: Double
+> h0 = 0.0
+
+> hs, vols, sds, ys :: V.Vector Double
+> hs = V.fromList $ take n $ fst $ runState hsAux (pureMT 1)
+>   where
+>     hsAux :: (MonadFix m, MonadRandom m) => m [Double]
+>     hsAux = mdo { x0 <- sample (Normal (mu + phi * h0) tau)
+>                 ; xs <- mapM (\x -> sample (Normal (mu + phi * x) tau)) (x0:xs)
+>                 ; return xs
+>                 }
+
+> vols = V.map exp hs
+
+```{.dia height='500'}
+import StochVol
+import StochVolChart
+
+dia = diag 1.0 "Volatility" (zip (map fromIntegral [0..]) vols)
+```
+
+> sds = V.map sqrt vols
+
+> ys = fst $ runState ysAux (pureMT 2)
+>   where
+>     ysAux = V.mapM (\sd -> sample (Normal 0.0 sd)) sds
+
+```{.dia height='500'}
+import StochVol
+import StochVolChart
+
+dia = diag 1.0 "Log Return" (zip (map fromIntegral [0..]) ys)
+```
+
+> m0, c0 :: Double
+> m0 = 0.0
+> c0 = 100.0
+
+$\theta = (\mu, \phi)^\top$ then
+
 $$
-\color{blue}
-{y_i = \boldsymbol{x}_i^{T}\boldsymbol{\beta} + \epsilon_i}
+\begin{matrix}
+\theta \,|\, \tau^2 & \sim & {\cal{N}}(\theta_0, \tau^2V_0) \\
+\tau^2              & \sim & {\cal{IG}}(\nu_0/2, \nu_0 s_0^2/2)
+\end{matrix}
 $$
+
+> mu0, phi0 :: Double
+> mu0   = -0.00645
+> phi0  =  0.99
+
+> theta0 :: Matrix Double
+> theta0 = (2><1)[mu0, phi0]
+
+> normalMultivariate :: Vector Double -> Matrix Double -> RVarT m (Vector Double)
+> normalMultivariate mu bigSigma = do
+>   z <- replicateM (size mu) (rvarT StdNormal)
+>   return $ mu + bigA #> (fromList z)
+>   where
+>     (vals, bigU) = eigSH bigSigma
+>     lSqrt = diag $ cmap sqrt vals
+>     bigA = bigU <> lSqrt
+
+> bigV0 :: Matrix Double
+> bigV0 = diag $ fromList [100.0, 100.0]
+
+> nu0, s02 :: Double
+> nu0    = 10.0
+> s02    = (nu0-2)/nu0*tau2
+
+Tuning parameter
+
+> vh :: Double
+> vh = 0.1
+
+> randomWalkMetropolis :: V.Vector Double ->
+>                         Double ->
+>                         Double ->
+>                         Double ->
+>                         Double ->
+>                         V.Vector Double ->
+>                         Double ->
+>                         RVar (V.Vector Double)
+> randomWalkMetropolis ys mu phi tau2 h0 hs vh = do
+>   let coef1 = (1 - phi) / (1 + phi^2) * mu
+>       coef2 = phi / (1 + phi^2)
+>       mu_n  = mu + phi * (hs V.! (n-1))
+>       mu_1  = coef1 + coef2 * ((hs V.! 2) + h0)
+>       innerMus = V.zipWith (\hp1 hm1 -> coef1 + coef2 * (hp1 + hm1)) (V.tail (V.tail hs)) hs
+>   hts <- V.mapM (\mu -> rvar (Normal mu vh)) (mu_1 `V.cons` innerMus `V.snoc` mu_n)
+>   return undefined
 
 Bibliography
 ============
