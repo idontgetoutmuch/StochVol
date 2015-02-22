@@ -257,7 +257,9 @@ Choose $X_0 \sim {\cal{N}}(m_0, C_0)$
 
 > {-# LANGUAGE RecursiveDo                   #-}
 
-> module StochVol where
+> module StochVol (
+>   randomWalkMetropolis
+>   ) where
 
 > import Numeric.LinearAlgebra.HMatrix
 > import Data.Random
@@ -265,6 +267,7 @@ Choose $X_0 \sim {\cal{N}}(m_0, C_0)$
 > import Control.Monad
 > import Control.Monad.Fix
 > import Control.Monad.State.Lazy
+> import Control.Applicative
 > import qualified Data.Vector as V
 
 > mu, phi, tau2, tau :: Double
@@ -339,17 +342,25 @@ $$
 >     lSqrt = diag $ cmap sqrt vals
 >     bigA = bigU <> lSqrt
 
-> bigV0 :: Matrix Double
+> bigV0, invBigV0 :: Matrix Double
 > bigV0 = diag $ fromList [100.0, 100.0]
+> invBigV0 = inv bigV0
 
 > nu0, s02 :: Double
 > nu0    = 10.0
-> s02    = (nu0-2)/nu0*tau2
+> s02    = (nu0 - 2) / nu0 * tau2
 
 Tuning parameter
 
 > vh :: Double
 > vh = 0.1
+
+General MCMC setup
+------------------
+
+> bigM, bigM0 :: Int
+> bigM0 = 1000
+> bigM  = 3000
 
 > randomWalkMetropolis :: V.Vector Double ->
 >                         Double ->
@@ -360,13 +371,41 @@ Tuning parameter
 >                         Double ->
 >                         RVar (V.Vector Double)
 > randomWalkMetropolis ys mu phi tau2 h0 hs vh = do
->   let coef1 = (1 - phi) / (1 + phi^2) * mu
+>   let eta2s = V.replicate (n-1) (tau2 / (1 + phi^2)) `V.snoc` tau2
+>       etas  = V.map sqrt eta2s
+>       coef1 = (1 - phi) / (1 + phi^2) * mu
 >       coef2 = phi / (1 + phi^2)
 >       mu_n  = mu + phi * (hs V.! (n-1))
 >       mu_1  = coef1 + coef2 * ((hs V.! 2) + h0)
 >       innerMus = V.zipWith (\hp1 hm1 -> coef1 + coef2 * (hp1 + hm1)) (V.tail (V.tail hs)) hs
->   hts <- V.mapM (\mu -> rvar (Normal mu vh)) (mu_1 `V.cons` innerMus `V.snoc` mu_n)
->   return undefined
+>       mus = mu_1 `V.cons` innerMus `V.snoc` mu_n
+>   hs' <- V.mapM (\mu -> rvar (Normal mu vh)) mus
+>   let num1s = V.zipWith3 (\mu eta h -> logPdf (Normal mu eta) h) mus etas hs'
+>       num2s = V.zipWith (\y h -> logPdf (Normal 0.0 (exp (0.5 * h))) y) ys hs'
+>       nums  = V.zipWith (+) num1s num2s
+>       den1s = V.zipWith3 (\mu eta h -> logPdf (Normal mu eta) h) mus etas hs
+>       den2s = V.zipWith (\y h -> logPdf (Normal 0.0 (exp (0.5 * h))) y) ys hs
+>       dens = V.zipWith (+) den1s den2s
+>   us <- V.replicate n <$> rvar StdUniform
+>   let ls   = V.zipWith (\n d -> min 0.0 (n - d)) nums dens
+>   return $ V.zipWith4 (\u l h h' -> if log u < l then h' else h) us ls hs hs'
+
+> sampleParms :: Vector Double ->
+>                Matrix Double ->
+>                Vector Double ->
+>                Matrix Double ->
+>                Double ->
+>                Double ->
+>                RVar (Vector Double, Double)
+> sampleParms y bigX b bigA v lam = do
+>   let n = size y
+>       k = cols bigX
+>       p1 = 0.5 * (v + fromIntegral n)
+>       var = inv $ bigA + bigX <> bigX
+>       mean = (var <> bigX) #> y + bigA #> b
+>       p2 = norm_2 $ tr bigX #> mean
+>   s2 <- recip <$> undefined
+>   undefined
 
 Bibliography
 ============
