@@ -248,17 +248,12 @@ Hyperparameters
 
 Choose $X_0 \sim {\cal{N}}(m_0, C_0)$
 
-> {-# OPTIONS_GHC -Wall                      #-}
-> {-# OPTIONS_GHC -fno-warn-name-shadowing   #-}
-> {-# OPTIONS_GHC -fno-warn-type-defaults    #-}
-> {-# OPTIONS_GHC -fno-warn-unused-do-bind   #-}
-> {-# OPTIONS_GHC -fno-warn-missing-methods  #-}
-> {-# OPTIONS_GHC -fno-warn-orphans          #-}
-
 > {-# LANGUAGE RecursiveDo                   #-}
 
 > module StochVol (
->   randomWalkMetropolis
+>     randomWalkMetropolis
+>   , vols
+>   , ys
 >   ) where
 
 > import Numeric.LinearAlgebra.HMatrix
@@ -294,10 +289,12 @@ Choose $X_0 \sim {\cal{N}}(m_0, C_0)$
 > vols = V.map exp hs
 
 ```{.dia height='500'}
+import Data.Vector ( toList )
+
 import StochVol
 import StochVolChart
 
-dia = diag 1.0 "Volatility" (zip (map fromIntegral [0..]) vols)
+dia = diag 1.0 "Volatility" (zip (map fromIntegral [0..]) (toList vols))
 ```
 
 > sds = V.map sqrt vols
@@ -307,10 +304,12 @@ dia = diag 1.0 "Volatility" (zip (map fromIntegral [0..]) vols)
 >     ysAux = V.mapM (\sd -> sample (Normal 0.0 sd)) sds
 
 ```{.dia height='500'}
+import Data.Vector ( toList )
+
 import StochVol
 import StochVolChart
 
-dia = diag 1.0 "Log Return" (zip (map fromIntegral [0..]) ys)
+dia = diag 1.0 "Log Return" (zip (map fromIntegral [0..]) (toList ys))
 ```
 
 > m0, c0 :: Double
