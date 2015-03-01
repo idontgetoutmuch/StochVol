@@ -46,7 +46,7 @@ $$
 
 Rearranging the first line, $W_t = y_t \exp(-h_t / 2)$,
 allowing the sampling distribution for $y_t$ to be written as
-\[ 
+\[
 y_t \sim {\mathcal{N}}(0,\exp(h_t/2)).
 \]
 The recurrence equation for $h_{t+1}$ may be combined with the
@@ -248,15 +248,32 @@ Hyperparameters
 
 Choose $X_0 \sim {\cal{N}}(m_0, C_0)$
 
+> {-# OPTIONS_GHC -Wall                      #-}
+> {-# OPTIONS_GHC -fno-warn-name-shadowing   #-}
+> {-# OPTIONS_GHC -fno-warn-type-defaults    #-}
+> {-# OPTIONS_GHC -fno-warn-unused-do-bind   #-}
+> {-# OPTIONS_GHC -fno-warn-missing-methods  #-}
+> {-# OPTIONS_GHC -fno-warn-orphans          #-}
+
 > {-# LANGUAGE RecursiveDo                   #-}
+> {-# LANGUAGE ExplicitForAll                #-}
+> {-# LANGUAGE TypeOperators                 #-}
+> {-# LANGUAGE TypeFamilies                  #-}
+> {-# LANGUAGE ScopedTypeVariables           #-}
+> {-# LANGUAGE DataKinds                     #-}
 
 > module StochVol (
 >     randomWalkMetropolis
 >   , vols
 >   , ys
+>   , sampleParms
 >   ) where
 
 > import Numeric.LinearAlgebra.HMatrix
+> import qualified Numeric.LinearAlgebra.Static as S
+> import GHC.TypeLits
+> import Data.Proxy
+> import Data.Maybe ( fromJust )
 > import Data.Random
 > import Data.Random.Source.PureMT
 > import Control.Monad
@@ -389,22 +406,54 @@ General MCMC setup
 >   let ls   = V.zipWith (\n d -> min 0.0 (n - d)) nums dens
 >   return $ V.zipWith4 (\u l h h' -> if log u < l then h' else h) us ls hs hs'
 
-> sampleParms :: Vector Double ->
->                Matrix Double ->
->                Vector Double ->
->                Matrix Double ->
->                Double ->
->                Double ->
->                RVar (Vector Double, Double)
+> y :: S.R 3
+> y = S.vector [-0.05952201,  0.14287468, -0.02163269]
+
+> bigX :: S.L 3 2
+> bigX = S.matrix [ 1.0,  0.14138937
+>                 , 1.0, -0.05952201
+>                 , 1.0,  0.14287468
+>                 ]
+
+> b :: S.R 2
+> b = S.vector [-0.00645,  0.99000]
+
+> bigA :: S.Sq 2
+> bigA =S.matrix [ 0.01, 0.00
+>                , 0.00, 0.01
+>                ]
+
+> test = sampleParms y bigX b bigA nu0 s02
+
+> sampleParms ::
+>   forall n .
+>   (KnownNat n, (1 <=? n) ~ 'True) =>
+>   S.R n -> S.L n 2 -> S.R 2 -> S.Sq 2 -> Double -> Double ->
+>   RVar (S.R 2, Double)
 > sampleParms y bigX b bigA v lam = do
->   let n = size y
->       k = cols bigX
+>   let n = natVal (Proxy :: Proxy n)
 >       p1 = 0.5 * (v + fromIntegral n)
->       var = inv $ bigA + bigX <> bigX
->       mean = (var <> bigX) #> y + bigA #> b
->       p2 = norm_2 $ tr bigX #> mean
->   s2 <- recip <$> undefined
->   undefined
+>       var = sinv $ bigA + (tr bigX) S.<> bigX
+>       mean = var S.#> ((tr bigX) S.#> y + (tr bigA) S.#> b)
+>       r = y - bigX S.#> mean
+>       s = r `S.dot` r
+>       p21 = v * lam + s
+>       p22 = d `S.dot` (bigA S.#> d) where d = mean - b
+>       p2 = 0.5 * (p21 + p22)
+>   g <- rvar (Gamma p1 p2)
+>   let s2 = recip g
+>   let var' = m S.<> var
+>         where
+>           m = S.diag $ S.vector (replicate 2 s2)
+>   m1 <- rvar StdNormal
+>   m2 <- rvar StdNormal
+>   let mean' :: S.R 2
+>       mean' = mean + S.chol (S.sym var') S.#> (S.vector [m1, m2])
+>   return (mean', s2)
+
+> sinv :: (KnownNat n, (1 <=? n) ~ 'True) => S.Sq n -> S.Sq n
+> sinv m = fromJust $ S.linSolve m S.eye
+
 
 Bibliography
 ============
