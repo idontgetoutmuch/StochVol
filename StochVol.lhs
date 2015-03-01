@@ -261,15 +261,17 @@ Choose $X_0 \sim {\cal{N}}(m_0, C_0)$
 > {-# LANGUAGE TypeFamilies                  #-}
 > {-# LANGUAGE ScopedTypeVariables           #-}
 > {-# LANGUAGE DataKinds                     #-}
+> {-# LANGUAGE FlexibleContexts              #-}
 
 > module StochVol (
 >     randomWalkMetropolis
 >   , vols
 >   , ys
 >   , sampleParms
+>   , multiStep
 >   ) where
 
-> import Numeric.LinearAlgebra.HMatrix
+> import Numeric.LinearAlgebra.HMatrix hiding ( (===), (|||) )
 > import qualified Numeric.LinearAlgebra.Static as S
 > import GHC.TypeLits
 > import Data.Proxy
@@ -346,21 +348,9 @@ $$
 > mu0   = -0.00645
 > phi0  =  0.99
 
-> theta0 :: Matrix Double
-> theta0 = (2><1)[mu0, phi0]
-
-> normalMultivariate :: Vector Double -> Matrix Double -> RVarT m (Vector Double)
-> normalMultivariate mu bigSigma = do
->   z <- replicateM (size mu) (rvarT StdNormal)
->   return $ mu + bigA #> (fromList z)
->   where
->     (vals, bigU) = eigSH bigSigma
->     lSqrt = diag $ cmap sqrt vals
->     bigA = bigU <> lSqrt
-
-> bigV0, invBigV0 :: Matrix Double
-> bigV0 = diag $ fromList [100.0, 100.0]
-> invBigV0 = inv bigV0
+> bigV0, invBigV0 :: S.Sq 2
+> bigV0 = S.diag $ S.fromList [100.0, 100.0]
+> invBigV0 = sinv bigV0
 
 > nu0, s02 :: Double
 > nu0    = 10.0
@@ -377,6 +367,39 @@ General MCMC setup
 > bigM, bigM0 :: Int
 > bigM0 = 1000
 > bigM  = 3000
+
+> iC0 :: Double
+> iC0 = recip c0
+
+> iC0m0 :: Double
+> iC0m0  = iC0 * m0
+
+> (|||) :: (KnownNat ((+) r1 r2), KnownNat r2, KnownNat c, KnownNat r1) =>
+>          S.L c r1 -> S.L c r2 -> S.L c ((+) r1 r2)
+> (|||) = (S.¦)
+
+> multiStep :: [RVar (Double, Double, Double, Double, V.Vector Double)]
+> multiStep = replicateM (bigM + bigM0) (singleStep vh ys) (mu0, phi0, tau2, h0, vols)
+
+> singleStep :: Double -> V.Vector Double ->
+>               (Double, Double, Double, Double, V.Vector Double) ->
+>               RVar (Double, Double, Double, Double, V.Vector Double)
+> singleStep vh y (mu, phi, tau2, h0, h) = do
+>   hNew <- randomWalkMetropolis y mu phi tau2 h0 h vh
+>   let var = recip $ (iC0 + phi^2 / tau2)
+>       mean = var * (iC0m0 + phi * ((hNew V.! 0) - mu) / tau2)
+>   h0New <- rvar (Normal mean (sqrt var))
+>   let bigX :: S.L 500 2 -- FIXME
+>       bigX = (S.col $ S.vector $ replicate n 1.0)
+>              |||
+>              (S.col $ S.vector $ V.toList $ h0 `V.cons` V.init hNew)
+>   newParms <- sampleParms (S.vector $ V.toList h) bigX (S.vector [mu, phi]) invBigV0 nu0 s02
+>   return ( (S.extract (fst newParms))!0
+>          , (S.extract (fst newParms))!1
+>          , snd newParms
+>          , h0New
+>          , hNew
+>          )
 
 > randomWalkMetropolis :: V.Vector Double ->
 >                         Double ->
@@ -405,25 +428,6 @@ General MCMC setup
 >   us <- V.replicate n <$> rvar StdUniform
 >   let ls   = V.zipWith (\n d -> min 0.0 (n - d)) nums dens
 >   return $ V.zipWith4 (\u l h h' -> if log u < l then h' else h) us ls hs hs'
-
-> y :: S.R 3
-> y = S.vector [-0.05952201,  0.14287468, -0.02163269]
-
-> bigX :: S.L 3 2
-> bigX = S.matrix [ 1.0,  0.14138937
->                 , 1.0, -0.05952201
->                 , 1.0,  0.14287468
->                 ]
-
-> b :: S.R 2
-> b = S.vector [-0.00645,  0.99000]
-
-> bigA :: S.Sq 2
-> bigA =S.matrix [ 0.01, 0.00
->                , 0.00, 0.01
->                ]
-
-> test = sampleParms y bigX b bigA nu0 s02
 
 > sampleParms ::
 >   forall n .
