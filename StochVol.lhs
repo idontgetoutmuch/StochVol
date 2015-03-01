@@ -440,7 +440,7 @@ General MCMC setup
 >       p21 = v * lam + s
 >       p22 = d `S.dot` (bigA S.#> d) where d = mean - b
 >       p2 = 0.5 * (p21 + p22)
->   g <- rvar (Gamma p1 p2)
+>   g <- rvar (Gamma p1 (recip p2))
 >   let s2 = recip g
 >   let var' = m S.<> var
 >         where
