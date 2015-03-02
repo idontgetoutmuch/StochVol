@@ -264,11 +264,8 @@ Choose $X_0 \sim {\cal{N}}(m_0, C_0)$
 > {-# LANGUAGE FlexibleContexts              #-}
 
 > module StochVol (
->     randomWalkMetropolis
->   , vols
->   , ys
->   , sampleParms
->   , multiStep
+>     bigM
+>   , runMC
 >   ) where
 
 > import Numeric.LinearAlgebra.HMatrix hiding ( (===), (|||) )
@@ -278,11 +275,13 @@ Choose $X_0 \sim {\cal{N}}(m_0, C_0)$
 > import Data.Maybe ( fromJust )
 > import Data.Random
 > import Data.Random.Source.PureMT
-> import Control.Monad
 > import Control.Monad.Fix
 > import Control.Monad.State.Lazy
+> import Control.Monad.Writer
+> import Control.Monad.Loops
 > import Control.Applicative
 > import qualified Data.Vector as V
+
 
 > mu, phi, tau2, tau :: Double
 > mu   = -0.00645
@@ -291,7 +290,7 @@ Choose $X_0 \sim {\cal{N}}(m_0, C_0)$
 > tau  = sqrt(tau2)
 
 > n :: Int
-> n = 500
+> n = 5000
 
 > h0 :: Double
 > h0 = 0.0
@@ -374,26 +373,33 @@ General MCMC setup
 > iC0m0 :: Double
 > iC0m0  = iC0 * m0
 
+> type StatsM a = RVarT (Writer [((Double, Double), Double)]) a
+
 > (|||) :: (KnownNat ((+) r1 r2), KnownNat r2, KnownNat c, KnownNat r1) =>
 >          S.L c r1 -> S.L c r2 -> S.L c ((+) r1 r2)
 > (|||) = (S.¦)
 
-> multiStep :: [RVar (Double, Double, Double, Double, V.Vector Double)]
-> multiStep = replicateM (bigM + bigM0) (singleStep vh ys) (mu0, phi0, tau2, h0, vols)
+> runMC :: [((Double, Double), Double)]
+> runMC = take bigM $ drop bigM0 $
+>         execWriter (evalStateT (sample multiStep) (pureMT 42))
+
+> multiStep :: StatsM (Double, Double, Double, Double, V.Vector Double)
+> multiStep = iterateM_ (singleStep vh ys) (mu0, phi0, tau2, h0, vols)
 
 > singleStep :: Double -> V.Vector Double ->
 >               (Double, Double, Double, Double, V.Vector Double) ->
->               RVar (Double, Double, Double, Double, V.Vector Double)
+>               StatsM (Double, Double, Double, Double, V.Vector Double)
 > singleStep vh y (mu, phi, tau2, h0, h) = do
+>   lift $ tell [((mu, phi),tau2)]
 >   hNew <- randomWalkMetropolis y mu phi tau2 h0 h vh
 >   let var = recip $ (iC0 + phi^2 / tau2)
 >       mean = var * (iC0m0 + phi * ((hNew V.! 0) - mu) / tau2)
->   h0New <- rvar (Normal mean (sqrt var))
->   let bigX :: S.L 500 2 -- FIXME
+>   h0New <- rvarT (Normal mean (sqrt var))
+>   let bigX :: S.L 5000 2 -- FIXME
 >       bigX = (S.col $ S.vector $ replicate n 1.0)
 >              |||
 >              (S.col $ S.vector $ V.toList $ h0 `V.cons` V.init hNew)
->   newParms <- sampleParms (S.vector $ V.toList h) bigX (S.vector [mu, phi]) invBigV0 nu0 s02
+>   newParms <- sampleParms (S.vector $ V.toList h) bigX (S.vector [mu0, phi0]) invBigV0 nu0 s02
 >   return ( (S.extract (fst newParms))!0
 >          , (S.extract (fst newParms))!1
 >          , snd newParms
@@ -408,32 +414,32 @@ General MCMC setup
 >                         Double ->
 >                         V.Vector Double ->
 >                         Double ->
->                         RVar (V.Vector Double)
+>                         RVarT m (V.Vector Double)
 > randomWalkMetropolis ys mu phi tau2 h0 hs vh = do
 >   let eta2s = V.replicate (n-1) (tau2 / (1 + phi^2)) `V.snoc` tau2
 >       etas  = V.map sqrt eta2s
 >       coef1 = (1 - phi) / (1 + phi^2) * mu
 >       coef2 = phi / (1 + phi^2)
 >       mu_n  = mu + phi * (hs V.! (n-1))
->       mu_1  = coef1 + coef2 * ((hs V.! 2) + h0)
+>       mu_1  = coef1 + coef2 * ((hs V.! 1) + h0)
 >       innerMus = V.zipWith (\hp1 hm1 -> coef1 + coef2 * (hp1 + hm1)) (V.tail (V.tail hs)) hs
 >       mus = mu_1 `V.cons` innerMus `V.snoc` mu_n
->   hs' <- V.mapM (\mu -> rvar (Normal mu vh)) mus
+>   hs' <- V.mapM (\mu -> rvarT (Normal mu vh)) hs
 >   let num1s = V.zipWith3 (\mu eta h -> logPdf (Normal mu eta) h) mus etas hs'
 >       num2s = V.zipWith (\y h -> logPdf (Normal 0.0 (exp (0.5 * h))) y) ys hs'
 >       nums  = V.zipWith (+) num1s num2s
 >       den1s = V.zipWith3 (\mu eta h -> logPdf (Normal mu eta) h) mus etas hs
 >       den2s = V.zipWith (\y h -> logPdf (Normal 0.0 (exp (0.5 * h))) y) ys hs
 >       dens = V.zipWith (+) den1s den2s
->   us <- V.replicate n <$> rvar StdUniform
+>   us <- V.replicate n <$> rvarT StdUniform
 >   let ls   = V.zipWith (\n d -> min 0.0 (n - d)) nums dens
 >   return $ V.zipWith4 (\u l h h' -> if log u < l then h' else h) us ls hs hs'
 
 > sampleParms ::
->   forall n .
+>   forall n m .
 >   (KnownNat n, (1 <=? n) ~ 'True) =>
 >   S.R n -> S.L n 2 -> S.R 2 -> S.Sq 2 -> Double -> Double ->
->   RVar (S.R 2, Double)
+>   RVarT m (S.R 2, Double)
 > sampleParms y bigX b bigA v lam = do
 >   let n = natVal (Proxy :: Proxy n)
 >       p1 = 0.5 * (v + fromIntegral n)
@@ -444,20 +450,19 @@ General MCMC setup
 >       p21 = v * lam + s
 >       p22 = d `S.dot` (bigA S.#> d) where d = mean - b
 >       p2 = 0.5 * (p21 + p22)
->   g <- rvar (Gamma p1 (recip p2))
+>   g <- rvarT (Gamma p1 (recip p2))
 >   let s2 = recip g
 >   let var' = m S.<> var
 >         where
 >           m = S.diag $ S.vector (replicate 2 s2)
->   m1 <- rvar StdNormal
->   m2 <- rvar StdNormal
+>   m1 <- rvarT StdNormal
+>   m2 <- rvarT StdNormal
 >   let mean' :: S.R 2
 >       mean' = mean + S.chol (S.sym var') S.#> (S.vector [m1, m2])
 >   return (mean', s2)
 
 > sinv :: (KnownNat n, (1 <=? n) ~ 'True) => S.Sq n -> S.Sq n
 > sinv m = fromJust $ S.linSolve m S.eye
-
 
 Bibliography
 ============
