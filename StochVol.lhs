@@ -14,9 +14,8 @@ Introduction
 In their tutorial on particle filtering, @doucet2011tutorial give an
 example of stochastic volatiltiy.
 
-$$
-X_1 \sim {\mathcal{N}}\bigg(0, \frac{\sigma^2}{1 - \alpha^2}\bigg)
-$$
+
+See e.g. @Jacquier94bayesiananalysis for further information.
 
 Stochastic volatility models treat the volatility (i.e., variance) of
 a return on an asset, such as an option to buy a security, as
@@ -32,13 +31,40 @@ white-noise shock (i.e., multiplicative error) on the asset return at
 time $t$, whereas $V_t$ represents the shock on volatility at
 time $t$.
 
+There is evidence that SVOL models offer increased flexibility over
+the GARCH family, e.g. Geweke (1994b) and Fridman and Harris (1998).
+
 $$
 \begin{aligned}
+X_0     &\sim {\mathcal{N}}\bigg(0, \frac{\sigma^2}{1 - \alpha^2}\bigg)
 X_{n+1} &= \mu + \alpha (X_n - \mu) + V_n \sigma \\
+H_0     &\sim {\mathcal{N}}\left( \mu, \frac{\sigma}{\sqrt{1 - \phi^2}} \right)
+H_t     & \mu + \phi H_{t-1} + \tau \eta_t \\ 
 Y_n     &= \beta \exp(X_t / 2) W_n \\
-h_1     &\sim {\mathcal{N}}\left( \mu, \frac{\sigma}{\sqrt{1 - \phi^2}} \right)
 \end{aligned}
 $$
+
+Temporarily
+
+$$
+\mu = m_0 \quad C0 = \frac{\sigma}{\sqrt{1 - \phi^2}}
+$$
+
+Let
+
+$$
+\boldsymbol{\theta} = \begin{bmatrix} \mu \\ \phi \end{bmatrix}
+$$
+
+Let us take a prior that is standard for linear regression
+
+$$
+(\boldsymbol{\theta}, \tau^2) \sim {\mathcal{NIG}}(\boldsymbol{\theta}_0, V_0, \nu_0, s_0^2)
+$$
+
+In other words
+
+
 
 $$
 W_t \sim {\mathcal{N}}(0,1); \ \ \ \ \  V_t \sim {\mathcal{N}}(0,1)
@@ -265,14 +291,18 @@ Choose $X_0 \sim {\cal{N}}(m_0, C_0)$
 
 > module StochVol (
 >     bigM
+>   , bigM0
+>   , vols
+>   , ys
 >   , runMC
 >   ) where
 
-> import Numeric.LinearAlgebra.HMatrix hiding ( (===), (|||) )
+> import Numeric.LinearAlgebra.HMatrix hiding ( (===), (|||), Element )
 > import qualified Numeric.LinearAlgebra.Static as S
 > import GHC.TypeLits
 > import Data.Proxy
 > import Data.Maybe ( fromJust )
+
 > import Data.Random
 > import Data.Random.Source.PureMT
 > import Control.Monad.Fix
@@ -280,6 +310,7 @@ Choose $X_0 \sim {\cal{N}}(m_0, C_0)$
 > import Control.Monad.Writer
 > import Control.Monad.Loops
 > import Control.Applicative
+
 > import qualified Data.Vector as V
 
 
@@ -463,6 +494,17 @@ General MCMC setup
 
 > sinv :: (KnownNat n, (1 <=? n) ~ 'True) => S.Sq n -> S.Sq n
 > sinv m = fromJust $ S.linSolve m S.eye
+
+```{.dia width='800'}
+import Data.Histogram ( asList )
+import StochVolMain
+
+dia = barDiag (zip (map fst $ asList (hist mus)) (map snd $ asList (hist mus)))
+  where
+    result = runMC
+    mus = map (fst. fst) result
+```
+
 
 Bibliography
 ============
