@@ -11,35 +11,50 @@ bibliography: Bayesian.bib
 Introduction
 ============
 
+Simple models for e.g. financial option pricing assume that the
+volatility of an index or a stock is constant, see
+[here](https://idontgetoutmuch.wordpress.com/2013/02/10/parallelising-path-dependent-options-in-haskell-2/)
+for example. However, simple observation of time series show that this
+is not the case.
+
+One approach which addresses this, GARCH (Generalised AutoRegressive
+Conditional Heteroskedasticity), models the evolution of volatility
+deterministically.
+
+Stochastic volatility models treat the volatility of a return on an
+asset, such as an option to buy a security, as a Hidden Markov Model
+(HMM). Typically, the observable data consist of noisy mean-corrected
+returns on an underlying asset at equally spaced time points.
+
+There is evidence that Stochastic Volatility models
+(@RePEc:bla:restud:v:65:y:1998:i:3:p:361-93) offer increased
+flexibility over the GARCH family, e.g. see
+@Geweke94bayesiancomparison, @citeulike:2576658 and
+@Jacquier94bayesiananalysis. Despite this and judging by the numbers
+of questions on the R Special Interest Group on Finance [mailing
+list](https://stat.ethz.ch/pipermail/r-sig-finance/), the use of GARCH
+in practice far outweighs that of Stochastic Volatility. Reasons cited
+are the multiplicity of estimation methods for the latter and the lack
+of packages (but see
+[here](http://cran.r-project.org/web/packages/stochvol/vignettes/article.pdf)
+for a recent improvement to the paucity of packages).
+
 In their tutorial on particle filtering, @doucet2011tutorial give an
-example of stochastic volatiltiy.
+example of stochastic volatility. We save this approach for future
+blog posts and follow [Lopes and
+Polson](http://faculty.chicagobooth.edu/nicholas.polson/research/papers/lopes-polson-2010.pdf)
+and the excellent [lecture
+notes](http://hedibert.org/wp-content/uploads/2013/12/UPCcourse-handouts.pdf)
+by [Hedibert Lopes](http://hedibert.org).
 
-
-See e.g. @Jacquier94bayesiananalysis for further information.
-
-Stochastic volatility models treat the volatility (i.e., variance) of
-a return on an asset, such as an option to buy a security, as
-following a latent stochastic process in discrete time
-\citep{KimShephardChib:1998}.  The data consist of mean corrected
-(i.e., centered) returns $y_t$ on an underlying asset at $T$ equally
-spaced time points.  Kim et al.\ formulate a typical stochastic
-volatility model using the following regression-like equations, with a
-latent parameter $h_t$ for the log volatility, along with parameters
-$\mu$ for the mean log volatility, and $\phi$ for the persistence of
-the volatility term.  The variable $W_t$ represents the
-white-noise shock (i.e., multiplicative error) on the asset return at
-time $t$, whereas $V_t$ represents the shock on volatility at
-time $t$.
-
-There is evidence that SVOL models offer increased flexibility over
-the GARCH family, e.g. Geweke (1994b) and Fridman and Harris (1998).
+Here's the model.
 
 $$
 \begin{aligned}
-X_0     &\sim {\mathcal{N}}\bigg(0, \frac{\sigma^2}{1 - \alpha^2}\bigg)
+X_0     &\sim {\mathcal{N}}\bigg(0, \frac{\sigma^2}{1 - \alpha^2}\bigg) \\
 X_{n+1} &= \mu + \alpha (X_n - \mu) + V_n \sigma \\
-H_0     &\sim {\mathcal{N}}\left( \mu, \frac{\sigma}{\sqrt{1 - \phi^2}} \right)
-H_t     & \mu + \phi H_{t-1} + \tau \eta_t \\ 
+H_0     &\sim {\mathcal{N}}\left( \mu, \frac{\sigma}{\sqrt{1 - \phi^2}} \right) \\
+H_t     &= \mu + \phi H_{t-1} + \tau \eta_t \\ 
 Y_n     &= \beta \exp(X_t / 2) W_n \\
 \end{aligned}
 $$
@@ -47,7 +62,7 @@ $$
 Temporarily
 
 $$
-\mu = m_0 \quad C0 = \frac{\sigma}{\sqrt{1 - \phi^2}}
+m_0 = \mu \quad C_0 = \frac{\sigma}{\sqrt{1 - \phi^2}}
 $$
 
 Let
@@ -64,7 +79,12 @@ $$
 
 In other words
 
-
+$$
+\begin{aligned}
+\boldsymbol{\theta} \, | \, \tau^2 & \sim {\cal{N}}(\boldsymbol{\theta}_0, V_0) \\
+\tau^2                             & \sim {\cal{IG}}(\nu_0 / 2, \nu_0 s_0^2 / 2)
+\end{aligned}
+$$
 
 $$
 W_t \sim {\mathcal{N}}(0,1); \ \ \ \ \  V_t \sim {\mathcal{N}}(0,1)
@@ -90,6 +110,8 @@ $$
 \begin{align}
 X_{n+1} &= \mu + \alpha(X_n - \mu)  + V_n \sigma \\
 \alpha^2(X_n - \mu) &= \alpha(X_{n+1} - \mu) -  \alpha V_n \sigma \\
+H_{t+1} &=  \mu + \phi H_{t} + \tau \eta_t \\ 
+\phi^2 H_{t} &=  -\phi\mu + \phi H_{t+1} - \phi \tau \eta_t \\ 
 \end{align}
 $$
 
@@ -98,6 +120,7 @@ We also have
 $$
 \begin{align}
 X_n - \mu &=  \alpha(X_{n-1} - \mu)  + V_{n-1} \sigma \\
+H_{t} &=  \mu + \phi H_{t-1} + \tau \eta_{t-1} \\ 
 \end{align}
 $$
 
@@ -106,8 +129,10 @@ Adding the two expressions together gives
 $$
 \begin{align}
 (1+\alpha^2)(X_n - \mu) &= \alpha((X_{n-1} - \mu) + (X_{n+1} - \mu)) + \sigma (V_{n-1} - \alpha V_n) \\
+(1 + \phi^2)H_{t} &= \phi (H_{t-1} + H_{t+1}) + \mu (1 - \phi) + \tau(\eta_{t-1} - \phi\eta_t) \\
 (X_n - \mu) &= \frac{\alpha}{1+\alpha^2}((X_{n-1} - \mu) + (X_{n+1} - \mu)) + \frac{\sigma}{1+\alpha^2} (V_{n-1} - \alpha V_n) \\
-X_n &= \mu + \frac{\alpha}{1+\alpha^2}((X_{n-1} - \mu) + (X_{n+1} - \mu)) + \frac{\sigma}{1+\alpha^2} (V_{n-1} - \alpha V_n)
+X_n &= \mu + \frac{\alpha}{1+\alpha^2}((X_{n-1} - \mu) + (X_{n+1} - \mu)) + \frac{\sigma}{1+\alpha^2} (V_{n-1} - \alpha V_n) \\
+H_{t} &= \frac{\phi}{1 + \phi^2} (H_{t-1} + H_{t+1}) + \mu \frac{1 - \phi}{1 + \phi^2} + \frac{\tau}{1 + \phi^2}(\eta_{t-1} - \phi\eta_t) \\
 \end{align}
 $$
 
