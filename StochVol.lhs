@@ -51,24 +51,11 @@ Here's the model.
 
 $$
 \begin{aligned}
-X_0     &\sim {\mathcal{N}}\bigg(0, \frac{\sigma^2}{1 - \alpha^2}\bigg) \\
-X_{n+1} &= \mu + \alpha (X_n - \mu) + V_n \sigma \\
 H_0     &\sim {\mathcal{N}}\left( \mu, \frac{\sigma}{\sqrt{1 - \phi^2}} \right) \\
 H_t     &= \mu + \phi H_{t-1} + \tau \eta_t \\ 
-Y_n     &= \beta \exp(X_t / 2) W_n \\
+Y_n     &= \beta \exp(H_t / 2) W_n \\
 \end{aligned}
 $$
-
-$$
-W_t \sim {\mathcal{N}}(0,1); \ \ \ \ \  V_t \sim {\mathcal{N}}(0,1)
-$$
-
-Temporarily
-
-$$
-m_0 = \mu \quad C_0 = \frac{\sigma}{\sqrt{1 - \phi^2}}
-$$
-
 
 We wish to estimate $\mu, \phi, \tau$ and $\boldsymbol{h}$. To do this
 via a Gibbs sampler we need to sample from
@@ -78,16 +65,8 @@ $$
 \condprob{p}{\boldsymbol{h}}{\mu, \phi, \tau, \boldsymbol{y}}
 $$
 
-
 Marginal Distribution for Parameters
 ====================================
-
-Let
-
-$$
-\boldsymbol{\theta} = \begin{bmatrix} \mu \\ \phi \end{bmatrix}
-$$
-
 
 Let us take a prior that is standard for linear regression
 
@@ -95,10 +74,16 @@ $$
 (\boldsymbol{\theta}, \tau^2) \sim {\mathcal{NIG}}(\boldsymbol{\theta}_0, V_0, \nu_0, s_0^2)
 $$
 
+where
+
+$$
+\boldsymbol{\theta} = \begin{bmatrix} \mu \\ \phi \end{bmatrix}
+$$
+
 and use standard results for linear regression to obtain the required
 marginal distribution.
 
-In other words
+That the prior is Normal Inverse Gamma (${\cal{NIG}}$) means
 
 $$
 \begin{aligned}
@@ -109,10 +94,18 @@ $$
 
 Standard [Bayesian analysis for
 regression](http://en.wikipedia.org/wiki/Bayesian_linear_regression)
-tells us that the conditional distribution is given by
+tells us that the (conditional) posterior distribution for
 
 $$
-\condprob {p}{\alpha, \beta, \eta}{y^{(t)}, x^{(t)}} = {\cal{N}}((\alpha, \beta); \mu_n, \sigma^2\Lambda_n^{-1})\,{\cal{IG}}(a_n, b_n)
+y_i = \beta + \alpha x_i + \epsilon_i
+$$
+
+where the $\{\epsilon_i\}$ are IID normal with variance $\sigma^2$ is
+given by
+
+$$
+\condprob {p}{\alpha, \beta, \eta}{\boldsymbol{y}, \boldsymbol{x}} =
+{\cal{N}}((\alpha, \beta); \mu_n, \sigma^2\Lambda_n^{-1})\,{\cal{IG}}(a_n, b_n)
 $$
 
 with
@@ -142,7 +135,9 @@ $$
 Recursive Form
 --------------
 
-We also have
+We can re-write the above recursively. We do not need to for this blog
+article but it will be required in any future blog article which uses
+Sequential Monte Carlo techniques.
 
 $$
 \Lambda_n = \boldsymbol{x}_n^\top \boldsymbol{x}_n  + \Lambda_{n-1}
@@ -175,7 +170,8 @@ $$
 Specialising
 ------------
 
-In the case of our model we can specialise these as
+In the case of our model we can specialise the non-recursive equations
+as
 
 $$
 \Lambda_n = \begin{bmatrix} 1 & 1 & \ldots & 1 \\
@@ -207,15 +203,13 @@ b_n = b_0 +
 \end{matrix}
 $$
 
-TBD
-===
+Marginal Distribution for State
+===============================
 
 From the state equation, we have
 
 $$
 \begin{align}
-X_{n+1} &= \mu + \alpha(X_n - \mu)  + V_n \sigma \\
-\alpha^2(X_n - \mu) &= \alpha(X_{n+1} - \mu) -  \alpha V_n \sigma \\
 H_{t+1} &=  \mu + \phi H_{t} + \tau \eta_t \\ 
 \phi^2 H_{t} &=  -\phi\mu + \phi H_{t+1} - \phi \tau \eta_t \\ 
 \end{align}
@@ -225,7 +219,6 @@ We also have
 
 $$
 \begin{align}
-X_n - \mu &=  \alpha(X_{n-1} - \mu)  + V_{n-1} \sigma \\
 H_{t} &=  \mu + \phi H_{t-1} + \tau \eta_{t-1} \\ 
 \end{align}
 $$
@@ -234,21 +227,8 @@ Adding the two expressions together gives
 
 $$
 \begin{align}
-(1+\alpha^2)(X_n - \mu) &= \alpha((X_{n-1} - \mu) + (X_{n+1} - \mu)) + \sigma (V_{n-1} - \alpha V_n) \\
 (1 + \phi^2)H_{t} &= \phi (H_{t-1} + H_{t+1}) + \mu (1 - \phi) + \tau(\eta_{t-1} - \phi\eta_t) \\
-(X_n - \mu) &= \frac{\alpha}{1+\alpha^2}((X_{n-1} - \mu) + (X_{n+1} - \mu)) + \frac{\sigma}{1+\alpha^2} (V_{n-1} - \alpha V_n) \\
-X_n &= \mu + \frac{\alpha}{1+\alpha^2}((X_{n-1} - \mu) + (X_{n+1} - \mu)) + \frac{\sigma}{1+\alpha^2} (V_{n-1} - \alpha V_n) \\
 H_{t} &= \frac{\phi}{1 + \phi^2} (H_{t-1} + H_{t+1}) + \mu \frac{1 - \phi}{1 + \phi^2} + \frac{\tau}{1 + \phi^2}(\eta_{t-1} - \phi\eta_t) \\
-\end{align}
-$$
-
-Since $\{V_n\}$ are standard normal, then $X_n$ conditional on
-$X_{n-1}$ and $X_{n+1}$ is normally distributed, and
-
-$$
-\begin{align}
-\mathbb{E}(X_n\mid X_{n-1}, X_{n+1}) &= \mu + \frac{\alpha}{1+\alpha^2}((X_{n-1} - \mu) + (X_{n+1} - \mu)) \\
-\mathbb{V}(X_n\mid X_{n-1}, X_{n+1}) &= \frac{\sigma^2}{1+\alpha^2}
 \end{align}
 $$
 
@@ -257,35 +237,54 @@ $H_{t-1}$ and $H_{t+1}$ is normally distributed, and
 
 $$
 \begin{align}
-\mathbb{E}(H_n\mid X_{n-1}, X_{n+1}) &= \frac{1 - \phi}{1+\phi^2}\mu +
+\mathbb{E}(H_n\mid H_{n-1}, H_{n+1}) &= \frac{1 - \phi}{1+\phi^2}\mu +
                                         \frac{\phi}{1+\phi^2}(H_{n-1} + H_{n+1}) \\
-\mathbb{V}(H_n\mid X_{n-1}, X_{n+1}) &= \frac{\tau^2}{1+\phi^2}
+\mathbb{V}(H_n\mid H_{n-1}, H_{n+1}) &= \frac{\tau^2}{1+\phi^2}
 \end{align}
 $$
 
-Algorithm
----------
-
-Let $\frac{\tau^2}{1 + \phi^2}$
-
-By Bayes' Theorem we have
+Writing
 
 $$
-\condprob{p}{x_t}{x_{-t}, \theta, \boldsymbol{y}} \propto
-\condprob{p}{y_t}{h_t} \condprob{p}{x_t}{x_{-t}, \theta, y_{-t}} =
-f_{\cal{N}}(h_t;\mu_t,\nu_t^2) f_{\cal{N}}(y_t;0,e^{h_t})
+\boldsymbol{h}_{-t} = \begin{bmatrix}
+                      h_0, &
+                      h_1, &
+                      \ldots, &
+                      h_{t-1}, &
+                      h_{t+1}, &
+                      \ldots, &
+                      h_{n-1}, &
+                      h_n
+                      \end{bmatrix}
 $$
 
-2. For each $t$, Sample $h_t^\flat_t$ from ${\cal{N}}(h_t, \gamma^2)$ where $\gamma^2$
+by Bayes' Theorem we have
+
+$$
+\condprob{p}{h_t}{\boldsymbol{h}_{-t}, \theta, \boldsymbol{y}} \propto
+\condprob{p}{y_t}{h_t} \condprob{p}{h_t}{\boldsymbol{h}_{-t}, \theta, y_{-t}} =
+f_{\cal{N}}(y_t;0,e^{h_t}) f_{\cal{N}}(h_t;\mu_t,\nu_t^2)
+$$
+
+where $f_{\cal{N}}(x;\mu,\sigma^2)$ is the probability density
+function of a normal distribution.
+
+Markov Chain Monte Carlo
+========================
+
+Now we can write down a single step for our Gibbs sampler. Steps 1 - 3
+specify the Metropolis step within this.
+
+1. For each $t$, sample $h_t^\flat$ from ${\cal{N}}(h_t, \gamma^2)$ where $\gamma^2$
 is the tuning variance.
 
-3. For each $t$, compute the acceptance probability
+2. For each $t$, compute the acceptance probability
 
 $$
-p_t = \min{\Bigg(\frac{f_{\cal{N}}(h_t;\mu_t,\nu_t^2) f_{\cal{N}}(y_t;0,e^{h_t})}{f_{\cal{N}}(h_t;\mu_t,\nu_t^2) f_{\cal{N}}(y_t;0,e^{h_t})}, 1 \Bigg)}
+p_t = \min{\Bigg(\frac{f_{\cal{N}}(h^\flat_t;\mu_t,\nu_t^2) f_{\cal{N}}(y_t;0,e^{h^\flat_t})}{f_{\cal{N}}(h_t;\mu_t,\nu_t^2) f_{\cal{N}}(y_t;0,e^{h_t})}, 1 \Bigg)}
 $$
 
-4. For each $t$, compute a new value of $h_t$: $h^\sharp_t$
+3. For each $t$, compute a new value of $h_t$
 
 $$
 h^\sharp_t =
@@ -295,44 +294,9 @@ h_t \text{with probability } 1 - p_t
 \end{cases}
 $$
 
-5. Sample from
-
-$$
-\condprob{p}{x_t}{x_{t-1}, x_{t+1}, \boldsymbol{y}} \propto
-\exp{\bigg\{-\frac{1}{2}\bigg[ x_n + \frac{y_n^2}{e^{x_n}} + (x_t - m_t)^2/b^2 \bigg]  \bigg\}}
-$$
-
-where
-
-$$
-b^2 = \frac{\sigma^2}{1 + \beta^2}
-$$
-
-$$
-m_t = \frac{\alpha(1- \beta) + \beta(x_{t-1} + x_{t+1})}{1 + \beta^2}
-$$
-
-$$
-\alpha = \mu - \alpha\mu
-$$
-
-$$
-\beta = \alpha
-$$
-
-$$
-b^2 = \frac{\sigma^2}{1 + \alpha^2}
-$$
-
-$$
-m_t = \frac{(\mu - \alpha\mu)(1- \alpha) + \alpha(x_{t-1} + x_{t+1})}{1 + \alpha^2}
-$$
-
-
-
-MCMC
-====
-
+4. Sample from $\condprob{p}{\boldsymbol{\theta},
+\tau^2}{\boldsymbol{h}, \boldsymbol{y}} \sim
+{\mathcal{NIG}}(\boldsymbol{\theta}_1, V_1, \nu_1, s_1^2)$
 
 Hyperparameters
 ===============
