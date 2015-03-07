@@ -298,10 +298,8 @@ $$
 \tau^2}{\boldsymbol{h}, \boldsymbol{y}} \sim
 {\mathcal{NIG}}(\boldsymbol{\theta}_1, V_1, \nu_1, s_1^2)$
 
-Hyperparameters
-===============
-
-Choose $X_0 \sim {\cal{N}}(m_0, C_0)$
+Haskell Preamble
+================
 
 > {-# OPTIONS_GHC -Wall                      #-}
 > {-# OPTIONS_GHC -fno-warn-name-shadowing   #-}
@@ -343,28 +341,38 @@ Choose $X_0 \sim {\cal{N}}(m_0, C_0)$
 > import qualified Data.Vector as V
 
 
-> mu, phi, tau2, tau :: Double
-> mu   = -0.00645
-> phi  =  0.99
-> tau2 =  0.15^2
-> tau  = sqrt(tau2)
+Let's create some test data.
+
+> mu', phi', tau2', tau' :: Double
+> mu'   = -0.00645
+> phi'  =  0.99
+> tau2' =  0.15^2
+> tau'  = sqrt tau2'
 
 > n :: Int
-> n = 5000
+> n = 500
+
+Arbitrarily let us start the process at
 
 > h0 :: Double
 > h0 = 0.0
+
+We define the process as a stream (aka co-recursively) using the
+Haskell *recursive do* construct. It is not necessary to do this but
+streams are a natural way to think of stochastic processes.
 
 > hs, vols, sds, ys :: V.Vector Double
 > hs = V.fromList $ take n $ fst $ runState hsAux (pureMT 1)
 >   where
 >     hsAux :: (MonadFix m, MonadRandom m) => m [Double]
->     hsAux = mdo { x0 <- sample (Normal (mu + phi * h0) tau)
->                 ; xs <- mapM (\x -> sample (Normal (mu + phi * x) tau)) (x0:xs)
+>     hsAux = mdo { x0 <- sample (Normal (mu' + phi' * h0) tau')
+>                 ; xs <- mapM (\x -> sample (Normal (mu' + phi' * x) tau')) (x0:xs)
 >                 ; return xs
 >                 }
 
 > vols = V.map exp hs
+
+We can plot the volatility (which we cannot observe directly).
 
 ```{.dia height='500'}
 import Data.Vector ( toList )
@@ -374,6 +382,8 @@ import StochVolChart
 
 dia = diag 1.0 "Volatility" (zip (map fromIntegral [0..]) (toList vols))
 ```
+
+And we can plot the log returns.
 
 > sds = V.map sqrt vols
 
@@ -403,9 +413,12 @@ $$
 \end{matrix}
 $$
 
+FIXME: Why start the sampler with the values of the simulated process?
+
 > mu0, phi0 :: Double
 > mu0   = -0.00645
 > phi0  =  0.99
+> tau20 =  0.15^2
 
 > bigV0, invBigV0 :: S.Sq 2
 > bigV0 = S.diag $ S.fromList [100.0, 100.0]
@@ -413,7 +426,7 @@ $$
 
 > nu0, s02 :: Double
 > nu0    = 10.0
-> s02    = (nu0 - 2) / nu0 * tau2
+> s02    = (nu0 - 2) / nu0 * tau20
 
 Tuning parameter
 
@@ -444,7 +457,7 @@ General MCMC setup
 >         execWriter (evalStateT (sample multiStep) (pureMT 42))
 
 > multiStep :: StatsM (Double, Double, Double, Double, V.Vector Double)
-> multiStep = iterateM_ (singleStep vh ys) (mu0, phi0, tau2, h0, vols)
+> multiStep = iterateM_ (singleStep vh ys) (mu0, phi0, tau20, h0, vols)
 
 > singleStep :: Double -> V.Vector Double ->
 >               (Double, Double, Double, Double, V.Vector Double) ->
