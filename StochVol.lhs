@@ -381,8 +381,18 @@ Let's create some test data.
 > tau2' =  0.15^2
 > tau'  = sqrt tau2'
 
+We need to create a statically typed matrix with one dimension the
+same size as the data so we tie the data size value to the required
+type.
+
+> nT :: Proxy 5000
+> nT = Proxy
+
+> valAndType :: KnownNat n => Proxy n -> (Int, S.L n 2)
+> valAndType x = (fromIntegral $ natVal x, undefined)
+
 > n :: Int
-> n = 5000
+> n = fst $ valAndType nT
 
 Arbitrarily let us start the process at
 
@@ -491,10 +501,10 @@ General MCMC setup
 >   let var = recip $ (iC0 + phi^2 / tau2)
 >       mean = var * (iC0m0 + phi * ((hNew V.! 0) - mu) / tau2)
 >   h0New <- rvarT (Normal mean (sqrt var))
->   let bigX :: S.L 5000 2 -- FIXME
->       bigX = (S.col $ S.vector $ replicate n 1.0)
->              |||
->              (S.col $ S.vector $ V.toList $ h0 `V.cons` V.init hNew)
+>   let bigX' = (S.col $ S.vector $ replicate n 1.0)
+>               |||
+>               (S.col $ S.vector $ V.toList $ h0 `V.cons` V.init hNew)
+>       bigX =  bigX' `asTypeOf` (snd $ valAndType nT)
 >   newParms <- sampleParms (S.vector $ V.toList h) bigX (S.vector [mu0, phi0]) invBigV0 nu0 s02
 >   return ( (S.extract (fst newParms))!0
 >          , (S.extract (fst newParms))!1
@@ -542,19 +552,12 @@ General MCMC setup
 >       invBigV_n = invBigV_0 + (tr bigX) S.<> bigX
 >       bigV_n = sinv invBigV_n
 >       theta_n = bigV_n S.#> ((tr bigX) S.#> y + (tr invBigV_0) S.#> theta_0)
->       r = y - bigX S.#> theta_n
->       s = r `S.dot` r
 >       b_0 = 0.5 * a_0 * s_02
->       p21 = a_0 * s_02 + s
->       p22 = d `S.dot` (invBigV_0 S.#> d) where d = theta_n - theta_0
->       b_n = 0.5 * (p21 + p22)
 >       b_m = b_0 +
 >             0.5 * (S.extract (S.row y S.<> S.col y)!0!0) +
 >             0.5 * (S.extract (S.row theta_0 S.<> invBigV_0 S.<> S.col theta_0)!0!0) -
 >             0.5 * (S.extract (S.row theta_n S.<> invBigV_n S.<> S.col theta_n)!0!0)
->   error ("\n\n" ++
->          show b_0 ++ " " ++ show b_n ++ " " ++ show b_m)
->   g <- rvarT (Gamma a_n (recip b_n))
+>   g <- rvarT (Gamma a_n (recip b_m))
 >   let s2 = recip g
 >   let bigV_n' = m S.<> bigV_n
 >         where
