@@ -536,26 +536,34 @@ General MCMC setup
 >   (KnownNat n, (1 <=? n) ~ 'True) =>
 >   S.R n -> S.L n 2 -> S.R 2 -> S.Sq 2 -> Double -> Double ->
 >   RVarT m (S.R 2, Double)
-> sampleParms y bigX theta bigV_0 a_0 b_0 = do
+> sampleParms y bigX theta_0 invBigV_0 a_0 s_02 = do
 >   let n = natVal (Proxy :: Proxy n)
 >       a_n = 0.5 * (a_0 + fromIntegral n)
->       var = sinv $ bigV_0 + (tr bigX) S.<> bigX
->       mean = var S.#> ((tr bigX) S.#> y + (tr bigV_0) S.#> theta)
->       r = y - bigX S.#> mean
+>       invBigV_n = invBigV_0 + (tr bigX) S.<> bigX
+>       bigV_n = sinv invBigV_n
+>       theta_n = bigV_n S.#> ((tr bigX) S.#> y + (tr invBigV_0) S.#> theta_0)
+>       r = y - bigX S.#> theta_n
 >       s = r `S.dot` r
->       p21 = a_0 * b_0 + s
->       p22 = d `S.dot` (bigV_0 S.#> d) where d = mean - theta
+>       b_0 = 0.5 * a_0 * s_02
+>       p21 = a_0 * s_02 + s
+>       p22 = d `S.dot` (invBigV_0 S.#> d) where d = theta_n - theta_0
 >       b_n = 0.5 * (p21 + p22)
+>       b_m = b_0 +
+>             0.5 * (S.extract (S.row y S.<> S.col y)!0!0) +
+>             0.5 * (S.extract (S.row theta_0 S.<> invBigV_0 S.<> S.col theta_0)!0!0) -
+>             0.5 * (S.extract (S.row theta_n S.<> invBigV_n S.<> S.col theta_n)!0!0)
+>   error ("\n\n" ++
+>          show b_0 ++ " " ++ show b_n ++ " " ++ show b_m)
 >   g <- rvarT (Gamma a_n (recip b_n))
 >   let s2 = recip g
->   let var' = m S.<> var
+>   let bigV_n' = m S.<> bigV_n
 >         where
 >           m = S.diag $ S.vector (replicate 2 s2)
 >   m1 <- rvarT StdNormal
 >   m2 <- rvarT StdNormal
->   let mean' :: S.R 2
->       mean' = mean + S.chol (S.sym var') S.#> (S.vector [m1, m2])
->   return (mean', s2)
+>   let theta_n' :: S.R 2
+>       theta_n' = theta_n + S.chol (S.sym bigV_n') S.#> (S.vector [m1, m2])
+>   return (theta_n', s2)
 
 > sinv :: (KnownNat n, (1 <=? n) ~ 'True) => S.Sq n -> S.Sq n
 > sinv m = fromJust $ S.linSolve m S.eye
