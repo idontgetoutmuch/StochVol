@@ -51,9 +51,9 @@ Here's the model.
 
 $$
 \begin{aligned}
-H_0     &\sim {\mathcal{N}}\left( \mu, \frac{\sigma}{\sqrt{1 - \phi^2}} \right) \\
+H_0     &\sim {\mathcal{N}}\left( m_0, C_0\right) \\
 H_t     &= \mu + \phi H_{t-1} + \tau \eta_t \\ 
-Y_n     &= \beta \exp(H_t / 2) W_n \\
+Y_n     &= \beta \exp(H_t / 2) \epsilon_n \\
 \end{aligned}
 $$
 
@@ -190,6 +190,38 @@ $$
 \mu_n = (\Lambda_n)^{-1}({X_n}^{\top}{X_n}\hat{\boldsymbol{\beta}}_n + \Lambda_0\mu_0) &
 \textrm{where} &
 \hat{\boldsymbol\beta}_n = (\boldsymbol{X}_n^{\rm T}\boldsymbol{X}_n)^{-1}\boldsymbol{X}_n^{\rm T}\boldsymbol{x}_{2:n+1}
+\end{matrix}
+$$
+
+$$
+\begin{matrix}
+a_n = \frac{n}{2} + a_0 & \quad &
+b_n = b_0 +
+      \frac{1}{2}(\boldsymbol{x}_{2:n+1}^\top\boldsymbol{x}_{2:n+1} +
+                  \boldsymbol{\mu}_0^\top\Lambda_0\boldsymbol{\mu}_0 -
+                  \boldsymbol{\mu}_n^\top\Lambda_n\boldsymbol{\mu}_n)
+\end{matrix}
+$$
+
+Let's re-write the notation to fit our model.
+
+$$
+\Lambda_n = \begin{bmatrix} 1 & 1 & \ldots & 1 \\
+                            h_1 & h_2 & \ldots & h_n
+            \end{bmatrix}
+            \begin{bmatrix} 1 & h_1 \\
+                            1 & h_2 \\
+                            \ldots & \ldots \\
+                            1 & h_n
+            \end{bmatrix}
++ \Lambda_0
+$$
+
+$$
+\begin{matrix}
+\mu_n = (\Lambda_n)^{-1}({H_n}^{\top}{H_n}\hat{\boldsymbol{\theta}}_n + \Lambda_0\mu_0) &
+\textrm{where} &
+\hat{\boldsymbol\theta}_n = (\boldsymbol{X}_n^{\rm T}\boldsymbol{X}_n)^{-1}\boldsymbol{X}_n^{\rm T}\boldsymbol{x}_{2:n+1}
 \end{matrix}
 $$
 
@@ -350,7 +382,7 @@ Let's create some test data.
 > tau'  = sqrt tau2'
 
 > n :: Int
-> n = 500
+> n = 5000
 
 Arbitrarily let us start the process at
 
@@ -404,21 +436,12 @@ dia = diag 1.0 "Log Return" (zip (map fromIntegral [0..]) (toList ys))
 > m0 = 0.0
 > c0 = 100.0
 
-$\theta = (\mu, \phi)^\top$ then
-
-$$
-\begin{matrix}
-\theta \,|\, \tau^2 & \sim & {\cal{N}}(\theta_0, \tau^2V_0) \\
-\tau^2              & \sim & {\cal{IG}}(\nu_0/2, \nu_0 s_0^2/2)
-\end{matrix}
-$$
-
 FIXME: Why start the sampler with the values of the simulated process?
 
-> mu0, phi0 :: Double
-> mu0   = -0.00645
-> phi0  =  0.99
-> tau20 =  0.15^2
+> mu0, phi0, tau20 :: Double
+> mu0   = -0.1 -- -0.00645
+> phi0  =  0.95 -- 0.99
+> tau20 =  0.5 -- 0.15^2
 
 > bigV0, invBigV0 :: S.Sq 2
 > bigV0 = S.diag $ S.fromList [100.0, 100.0]
@@ -437,7 +460,7 @@ General MCMC setup
 ------------------
 
 > bigM, bigM0 :: Int
-> bigM0 = 1000
+> bigM0 = 2000
 > bigM  = 3000
 
 > iC0 :: Double
@@ -513,17 +536,17 @@ General MCMC setup
 >   (KnownNat n, (1 <=? n) ~ 'True) =>
 >   S.R n -> S.L n 2 -> S.R 2 -> S.Sq 2 -> Double -> Double ->
 >   RVarT m (S.R 2, Double)
-> sampleParms y bigX b bigA v lam = do
+> sampleParms y bigX theta bigV_0 a_0 b_0 = do
 >   let n = natVal (Proxy :: Proxy n)
->       p1 = 0.5 * (v + fromIntegral n)
->       var = sinv $ bigA + (tr bigX) S.<> bigX
->       mean = var S.#> ((tr bigX) S.#> y + (tr bigA) S.#> b)
+>       a_n = 0.5 * (a_0 + fromIntegral n)
+>       var = sinv $ bigV_0 + (tr bigX) S.<> bigX
+>       mean = var S.#> ((tr bigX) S.#> y + (tr bigV_0) S.#> theta)
 >       r = y - bigX S.#> mean
 >       s = r `S.dot` r
->       p21 = v * lam + s
->       p22 = d `S.dot` (bigA S.#> d) where d = mean - b
->       p2 = 0.5 * (p21 + p22)
->   g <- rvarT (Gamma p1 (recip p2))
+>       p21 = a_0 * b_0 + s
+>       p22 = d `S.dot` (bigV_0 S.#> d) where d = mean - theta
+>       b_n = 0.5 * (p21 + p22)
+>   g <- rvarT (Gamma a_n (recip b_n))
 >   let s2 = recip g
 >   let var' = m S.<> var
 >         where
@@ -537,16 +560,13 @@ General MCMC setup
 > sinv :: (KnownNat n, (1 <=? n) ~ 'True) => S.Sq n -> S.Sq n
 > sinv m = fromJust $ S.linSolve m S.eye
 
-```{.dia width='800'}
-import Data.Histogram ( asList )
-import StochVolMain
-
-dia = barDiag (zip (map fst $ asList (hist mus)) (map snd $ asList (hist mus)))
-  where
-    result = runMC
-    mus = map (fst. fst) result
+```{.dia height='600'}
+dia = image (DImage (ImageRef "mus.png") 600 600 (translationX 0.0))
 ```
 
+```{.dia height='400'}
+dia = image (DImage (ImageRef "phis.png") 400 400 (translationX 0.0))
+```
 
 Bibliography
 ============

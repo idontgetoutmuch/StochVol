@@ -5,7 +5,6 @@
 {-# OPTIONS_GHC -fno-warn-missing-methods  #-}
 {-# OPTIONS_GHC -fno-warn-orphans          #-}
 
-
 {-# LANGUAGE TypeFamilies                  #-}
 
 module StochVolMain (
@@ -100,7 +99,7 @@ barChart bvs = toRenderable layout
       $ def
 
 barDiag :: [(Double, Double)] ->
-           Diagram Cairo R2
+           Diagram B R2
 barDiag bvs = fst $ runBackend denv (render (barChart bvs) (500, 500))
 
 main :: IO ()
@@ -114,3 +113,7 @@ main = do
   putStrLn $ show $ (/(fromIntegral bigM)) $ sum taus
   displayHeader "mus.png"
     (barDiag (zip (map fst $ asList (hist mus)) (map snd $ asList (hist mus))))
+  displayHeader "phis.png"
+    (barDiag (zip (map fst $ asList (hist phis)) (map snd $ asList (hist phis))))
+  displayHeader "taus.png"
+    (barDiag (zip (map fst $ asList (hist taus)) (map snd $ asList (hist taus))))
