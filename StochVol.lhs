@@ -354,6 +354,28 @@ $$
 \end{align}
 $$
 
+Another standard result about [conjugate
+priors](https://idontgetoutmuch.wordpress.com/2014/03/20/bayesian-analysis-a-conjugate-prior-and-markov-chain-monte-carlo/) and since we have
+
+$$
+h_0 \sim {\cal{N}}(m_0,C_0) \quad h_1 \vert h_0 \sim {\cal{N}}(\mu + \phi h_0, \tau^2)
+$$
+
+we can deduce
+
+$$
+h_0 \vert h_1 \sim {\cal{N}}(m_1,C_1)
+$$
+
+where
+
+$$
+\begin{align}
+\frac{1}{C_1} &= \frac{1}{C_0} + \frac{\phi^2}{\tau^2} \\
+\frac{m_1}{C_1} &= \frac{m_0}{C_0} + \frac{\phi(h_1 - \mu)}{\tau^2}
+\end{align}
+$$
+
 Writing
 
 $$
