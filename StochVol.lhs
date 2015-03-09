@@ -65,6 +65,56 @@ $$
 \condprob{p}{\boldsymbol{h}}{\mu, \phi, \tau, \boldsymbol{y}}
 $$
 
+Haskell Preamble
+----------------
+
+> {-# OPTIONS_GHC -Wall                      #-}
+> {-# OPTIONS_GHC -fno-warn-name-shadowing   #-}
+> {-# OPTIONS_GHC -fno-warn-type-defaults    #-}
+> {-# OPTIONS_GHC -fno-warn-unused-do-bind   #-}
+> {-# OPTIONS_GHC -fno-warn-missing-methods  #-}
+> {-# OPTIONS_GHC -fno-warn-orphans          #-}
+
+> {-# LANGUAGE RecursiveDo                   #-}
+> {-# LANGUAGE ExplicitForAll                #-}
+> {-# LANGUAGE TypeOperators                 #-}
+> {-# LANGUAGE TypeFamilies                  #-}
+> {-# LANGUAGE ScopedTypeVariables           #-}
+> {-# LANGUAGE DataKinds                     #-}
+> {-# LANGUAGE FlexibleContexts              #-}
+
+> module StochVol (
+>     bigM
+>   , bigM0
+>   , vols
+>   , ys
+>   , runMC
+>   ) where
+
+> import Numeric.LinearAlgebra.HMatrix hiding ( (===), (|||), Element, (<>), (#>) )
+> import qualified Numeric.LinearAlgebra.Static as S
+> import Numeric.LinearAlgebra.Static ( (<>) )
+> import GHC.TypeLits
+> import Data.Proxy
+> import Data.Maybe ( fromJust )
+
+> import Data.Random
+> import Data.Random.Source.PureMT
+> import Control.Monad.Fix
+> import Control.Monad.State.Lazy
+> import Control.Monad.Writer hiding ( (<>) )
+> import Control.Monad.Loops
+> import Control.Applicative
+
+> import qualified Data.Vector as V
+
+> sinv :: (KnownNat n, (1 <=? n) ~ 'True) => S.Sq n -> S.Sq n
+> sinv m = fromJust $ S.linSolve m S.eye
+
+> infixr 8 #>
+> (#>) :: (KnownNat m, KnownNat n) => S.L m n -> S.R n -> S.R m
+> (#>) = (S.#>)
+
 Marginal Distribution for Parameters
 ====================================
 
@@ -235,6 +285,35 @@ b_n = b_0 +
 \end{matrix}
 $$
 
+We can implement this in Haskell as
+
+> sampleParms ::
+>   forall n m .
+>   (KnownNat n, (1 <=? n) ~ 'True) =>
+>   S.R n -> S.L n 2 -> S.R 2 -> S.Sq 2 -> Double -> Double ->
+>   RVarT m (S.R 2, Double)
+> sampleParms y bigX theta_0 bigLambda_0 a_0 s_02 = do
+>   let n = natVal (Proxy :: Proxy n)
+>       a_n = 0.5 * (a_0 + fromIntegral n)
+>       bigLambda_n = bigLambda_0 + (tr bigX) <> bigX
+>       invBigLambda_n = sinv bigLambda_n
+>       theta_n = invBigLambda_n #> ((tr bigX) #> y + (tr bigLambda_0) #> theta_0)
+>       b_0 = 0.5 * a_0 * s_02
+>       b_n = b_0 +
+>             0.5 * (S.extract (S.row y <> S.col y)!0!0) +
+>             0.5 * (S.extract (S.row theta_0 <> bigLambda_0 <> S.col theta_0)!0!0) -
+>             0.5 * (S.extract (S.row theta_n <> bigLambda_n <> S.col theta_n)!0!0)
+>   g <- rvarT (Gamma a_n (recip b_n))
+>   let s2 = recip g
+>       invBigLambda_n' = m <> invBigLambda_n
+>         where
+>           m = S.diag $ S.vector (replicate 2 s2)
+>   m1 <- rvarT StdNormal
+>   m2 <- rvarT StdNormal
+>   let theta_n' :: S.R 2
+>       theta_n' = theta_n + S.chol (S.sym invBigLambda_n') #> (S.vector [m1, m2])
+>   return (theta_n', s2)
+
 Marginal Distribution for State
 ===============================
 
@@ -330,48 +409,8 @@ $$
 \tau^2}{\boldsymbol{h}, \boldsymbol{y}} \sim
 {\mathcal{NIG}}(\boldsymbol{\theta}_1, V_1, \nu_1, s_1^2)$
 
-Haskell Preamble
-================
-
-> {-# OPTIONS_GHC -Wall                      #-}
-> {-# OPTIONS_GHC -fno-warn-name-shadowing   #-}
-> {-# OPTIONS_GHC -fno-warn-type-defaults    #-}
-> {-# OPTIONS_GHC -fno-warn-unused-do-bind   #-}
-> {-# OPTIONS_GHC -fno-warn-missing-methods  #-}
-> {-# OPTIONS_GHC -fno-warn-orphans          #-}
-
-> {-# LANGUAGE RecursiveDo                   #-}
-> {-# LANGUAGE ExplicitForAll                #-}
-> {-# LANGUAGE TypeOperators                 #-}
-> {-# LANGUAGE TypeFamilies                  #-}
-> {-# LANGUAGE ScopedTypeVariables           #-}
-> {-# LANGUAGE DataKinds                     #-}
-> {-# LANGUAGE FlexibleContexts              #-}
-
-> module StochVol (
->     bigM
->   , bigM0
->   , vols
->   , ys
->   , runMC
->   ) where
-
-> import Numeric.LinearAlgebra.HMatrix hiding ( (===), (|||), Element )
-> import qualified Numeric.LinearAlgebra.Static as S
-> import GHC.TypeLits
-> import Data.Proxy
-> import Data.Maybe ( fromJust )
-
-> import Data.Random
-> import Data.Random.Source.PureMT
-> import Control.Monad.Fix
-> import Control.Monad.State.Lazy
-> import Control.Monad.Writer
-> import Control.Monad.Loops
-> import Control.Applicative
-
-> import qualified Data.Vector as V
-
+Testing
+=======
 
 Let's create some test data.
 
@@ -541,35 +580,6 @@ General MCMC setup
 >   let ls   = V.zipWith (\n d -> min 0.0 (n - d)) nums dens
 >   return $ V.zipWith4 (\u l h h' -> if log u < l then h' else h) us ls hs hs'
 
-> sampleParms ::
->   forall n m .
->   (KnownNat n, (1 <=? n) ~ 'True) =>
->   S.R n -> S.L n 2 -> S.R 2 -> S.Sq 2 -> Double -> Double ->
->   RVarT m (S.R 2, Double)
-> sampleParms y bigX theta_0 invBigV_0 a_0 s_02 = do
->   let n = natVal (Proxy :: Proxy n)
->       a_n = 0.5 * (a_0 + fromIntegral n)
->       invBigV_n = invBigV_0 + (tr bigX) S.<> bigX
->       bigV_n = sinv invBigV_n
->       theta_n = bigV_n S.#> ((tr bigX) S.#> y + (tr invBigV_0) S.#> theta_0)
->       b_0 = 0.5 * a_0 * s_02
->       b_m = b_0 +
->             0.5 * (S.extract (S.row y S.<> S.col y)!0!0) +
->             0.5 * (S.extract (S.row theta_0 S.<> invBigV_0 S.<> S.col theta_0)!0!0) -
->             0.5 * (S.extract (S.row theta_n S.<> invBigV_n S.<> S.col theta_n)!0!0)
->   g <- rvarT (Gamma a_n (recip b_m))
->   let s2 = recip g
->   let bigV_n' = m S.<> bigV_n
->         where
->           m = S.diag $ S.vector (replicate 2 s2)
->   m1 <- rvarT StdNormal
->   m2 <- rvarT StdNormal
->   let theta_n' :: S.R 2
->       theta_n' = theta_n + S.chol (S.sym bigV_n') S.#> (S.vector [m1, m2])
->   return (theta_n', s2)
-
-> sinv :: (KnownNat n, (1 <=? n) ~ 'True) => S.Sq n -> S.Sq n
-> sinv m = fromJust $ S.linSolve m S.eye
 
 ```{.dia height='600'}
 dia = image (DImage (ImageRef "mus.png") 600 600 (translationX 0.0))
