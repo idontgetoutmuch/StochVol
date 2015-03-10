@@ -15,7 +15,11 @@ Simple models for e.g. financial option pricing assume that the
 volatility of an index or a stock is constant, see
 [here](https://idontgetoutmuch.wordpress.com/2013/02/10/parallelising-path-dependent-options-in-haskell-2/)
 for example. However, simple observation of time series show that this
-is not the case.
+is not the case; if it were then the log returns would be white noise
+
+```{.dia height='600'}
+dia = image (DImage (ImageRef "diagrams/eurusd.png") 600 600 (translationX 0.0))
+```
 
 One approach which addresses this, GARCH (Generalised AutoRegressive
 Conditional Heteroskedasticity), models the evolution of volatility
@@ -376,6 +380,12 @@ $$
 \end{align}
 $$
 
+We also have
+
+$$
+h_{n+1} \vert h_n \sim {\cal{N}}(\mu + \phi h_n, \tau^2)
+$$
+
 Writing
 
 $$
@@ -401,6 +411,52 @@ $$
 
 where $f_{\cal{N}}(x;\mu,\sigma^2)$ is the probability density
 function of a normal distribution.
+
+We can sample from this using [Metropolis](http://en.wikipedia.org/wiki/Metropolis–Hastings_algorithm)
+
+1. For each $t=0, \ldots, n+1$, compute the acceptance probability
+
+$$
+p_t = \min{\Bigg(\frac{f_{\cal{N}}(h^\flat_t;\mu_t,\nu_t^2) f_{\cal{N}}(y_t;0,e^{h^\flat_t})}{f_{\cal{N}}(h_t;\mu_t,\nu_t^2) f_{\cal{N}}(y_t;0,e^{h_t})}, 1 \Bigg)}
+$$
+
+2. For each $t$, compute a new value of $h_t$
+
+$$
+h^\sharp_t =
+\begin{cases}
+h^\flat_t \text{with probability } p_t \\
+h_t \text{with probability } 1 - p_t
+\end{cases}
+$$
+
+> metropolis :: V.Vector Double ->
+>               Double ->
+>               Double ->
+>               Double ->
+>               Double ->
+>               V.Vector Double ->
+>               Double ->
+>               RVarT m (V.Vector Double)
+> metropolis ys mu phi tau2 h0 hs vh = do
+>   let eta2s = V.replicate (n-1) (tau2 / (1 + phi^2)) `V.snoc` tau2
+>       etas  = V.map sqrt eta2s
+>       coef1 = (1 - phi) / (1 + phi^2) * mu
+>       coef2 = phi / (1 + phi^2)
+>       mu_n  = mu + phi * (hs V.! (n-1))
+>       mu_1  = coef1 + coef2 * ((hs V.! 1) + h0)
+>       innerMus = V.zipWith (\hp1 hm1 -> coef1 + coef2 * (hp1 + hm1)) (V.tail (V.tail hs)) hs
+>       mus = mu_1 `V.cons` innerMus `V.snoc` mu_n
+>   hs' <- V.mapM (\mu -> rvarT (Normal mu vh)) hs
+>   let num1s = V.zipWith3 (\mu eta h -> logPdf (Normal mu eta) h) mus etas hs'
+>       num2s = V.zipWith (\y h -> logPdf (Normal 0.0 (exp (0.5 * h))) y) ys hs'
+>       nums  = V.zipWith (+) num1s num2s
+>       den1s = V.zipWith3 (\mu eta h -> logPdf (Normal mu eta) h) mus etas hs
+>       den2s = V.zipWith (\y h -> logPdf (Normal 0.0 (exp (0.5 * h))) y) ys hs
+>       dens = V.zipWith (+) den1s den2s
+>   us <- V.replicate n <$> rvarT StdUniform
+>   let ls   = V.zipWith (\n d -> min 0.0 (n - d)) nums dens
+>   return $ V.zipWith4 (\u l h h' -> if log u < l then h' else h) us ls hs hs'
 
 Markov Chain Monte Carlo
 ========================
@@ -558,7 +614,7 @@ General MCMC setup
 >               StatsM (Double, Double, Double, Double, V.Vector Double)
 > singleStep vh y (mu, phi, tau2, h0, h) = do
 >   lift $ tell [((mu, phi),tau2)]
->   hNew <- randomWalkMetropolis y mu phi tau2 h0 h vh
+>   hNew <- metropolis y mu phi tau2 h0 h vh
 >   let var = recip $ (iC0 + phi^2 / tau2)
 >       mean = var * (iC0m0 + phi * ((hNew V.! 0) - mu) / tau2)
 >   h0New <- rvarT (Normal mean (sqrt var))
@@ -574,33 +630,6 @@ General MCMC setup
 >          , hNew
 >          )
 
-> randomWalkMetropolis :: V.Vector Double ->
->                         Double ->
->                         Double ->
->                         Double ->
->                         Double ->
->                         V.Vector Double ->
->                         Double ->
->                         RVarT m (V.Vector Double)
-> randomWalkMetropolis ys mu phi tau2 h0 hs vh = do
->   let eta2s = V.replicate (n-1) (tau2 / (1 + phi^2)) `V.snoc` tau2
->       etas  = V.map sqrt eta2s
->       coef1 = (1 - phi) / (1 + phi^2) * mu
->       coef2 = phi / (1 + phi^2)
->       mu_n  = mu + phi * (hs V.! (n-1))
->       mu_1  = coef1 + coef2 * ((hs V.! 1) + h0)
->       innerMus = V.zipWith (\hp1 hm1 -> coef1 + coef2 * (hp1 + hm1)) (V.tail (V.tail hs)) hs
->       mus = mu_1 `V.cons` innerMus `V.snoc` mu_n
->   hs' <- V.mapM (\mu -> rvarT (Normal mu vh)) hs
->   let num1s = V.zipWith3 (\mu eta h -> logPdf (Normal mu eta) h) mus etas hs'
->       num2s = V.zipWith (\y h -> logPdf (Normal 0.0 (exp (0.5 * h))) y) ys hs'
->       nums  = V.zipWith (+) num1s num2s
->       den1s = V.zipWith3 (\mu eta h -> logPdf (Normal mu eta) h) mus etas hs
->       den2s = V.zipWith (\y h -> logPdf (Normal 0.0 (exp (0.5 * h))) y) ys hs
->       dens = V.zipWith (+) den1s den2s
->   us <- V.replicate n <$> rvarT StdUniform
->   let ls   = V.zipWith (\n d -> min 0.0 (n - d)) nums dens
->   return $ V.zipWith4 (\u l h h' -> if log u < l then h' else h) us ls hs hs'
 
 
 ```{.dia height='600'}
