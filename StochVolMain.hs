@@ -79,12 +79,13 @@ displayHeader fn =
              , DiagramLoopOpts False Nothing 0
              )
 
-barChart :: [(Double, Double)] ->
+barChart :: String ->
+            [(Double, Double)] ->
             Graphics.Rendering.Chart.Renderable ()
-barChart bvs = toRenderable layout
+barChart title bvs = toRenderable layout
   where
     layout =
-      layout_title .~ "Mu"
+      layout_title .~ title
       $ layout_x_axis . laxis_generate .~ autoIndexAxis (map (printf "%4.3f" . fst) bvs)
 
       $ layout_y_axis . laxis_title .~ "Frequency"
@@ -92,15 +93,16 @@ barChart bvs = toRenderable layout
       $ def
 
     bars1 =
-      plot_bars_titles .~ ["Mu"]
+      plot_bars_titles .~ [title]
       $ plot_bars_values .~ addIndexes (map return $ map snd bvs)
       $ plot_bars_style .~ BarsClustered
       $ plot_bars_item_styles .~ [(solidFillStyle (blue `withOpacity` 0.25), Nothing)]
       $ def
 
-barDiag :: [(Double, Double)] ->
+barDiag :: String ->
+           [(Double, Double)] ->
            Diagram B R2
-barDiag bvs = fst $ runBackend denv (render (barChart bvs) (500, 500))
+barDiag title bvs = fst $ runBackend denv (render (barChart title bvs) (500, 500))
 
 main :: IO ()
 main = do
@@ -112,8 +114,8 @@ main = do
   putStrLn $ show $ (/(fromIntegral bigM)) $ sum phis
   putStrLn $ show $ (/(fromIntegral bigM)) $ sum taus
   displayHeader "mus.png"
-    (barDiag (zip (map fst $ asList (hist mus)) (map snd $ asList (hist mus))))
+    (barDiag "Mu" (zip (map fst $ asList (hist mus)) (map snd $ asList (hist mus))))
   displayHeader "phis.png"
-    (barDiag (zip (map fst $ asList (hist phis)) (map snd $ asList (hist phis))))
+    (barDiag "Phi" (zip (map fst $ asList (hist phis)) (map snd $ asList (hist phis))))
   displayHeader "taus.png"
-    (barDiag (zip (map fst $ asList (hist taus)) (map snd $ asList (hist taus))))
+    (barDiag "Tau" (zip (map fst $ asList (hist taus)) (map snd $ asList (hist taus))))

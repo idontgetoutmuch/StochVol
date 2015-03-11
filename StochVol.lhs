@@ -90,12 +90,15 @@ Haskell Preamble
 > module StochVol (
 >     bigM
 >   , bigM0
->   , vols
->   , ys
 >   , runMC
+>   , ys
+>   , vols
+>   , expectationTau2
+>   , varianceTau2
 >   ) where
 
-> import Numeric.LinearAlgebra.HMatrix hiding ( (===), (|||), Element, (<>), (#>) )
+> import Numeric.LinearAlgebra.HMatrix hiding ( (===), (|||), Element,
+>                                               (<>), (#>), inv )
 > import qualified Numeric.LinearAlgebra.Static as S
 > import Numeric.LinearAlgebra.Static ( (<>) )
 > import GHC.TypeLits
@@ -112,12 +115,19 @@ Haskell Preamble
 
 > import qualified Data.Vector as V
 
-> sinv :: (KnownNat n, (1 <=? n) ~ 'True) => S.Sq n -> S.Sq n
-> sinv m = fromJust $ S.linSolve m S.eye
+> inv :: (KnownNat n, (1 <=? n) ~ 'True) => S.Sq n -> S.Sq n
+> inv m = fromJust $ S.linSolve m S.eye
 
 > infixr 8 #>
 > (#>) :: (KnownNat m, KnownNat n) => S.L m n -> S.R n -> S.R m
 > (#>) = (S.#>)
+
+> type StatsM a = RVarT (Writer [((Double, Double), Double)]) a
+
+> (|||) :: (KnownNat ((+) r1 r2), KnownNat r2, KnownNat c, KnownNat r1) =>
+>          S.L c r1 -> S.L c r2 -> S.L c ((+) r1 r2)
+> (|||) = (S.¦)
+
 
 Marginal Distribution for Parameters
 ====================================
@@ -128,20 +138,15 @@ $$
 (\boldsymbol{\theta}, \tau^2) \sim {\mathcal{NIG}}(\boldsymbol{\theta}_0, V_0, \nu_0, s_0^2)
 $$
 
-where
-
-$$
-\boldsymbol{\theta} = \begin{bmatrix} \mu \\ \phi \end{bmatrix}
-$$
-
-and use standard results for linear regression to obtain the required
-marginal distribution.
+where $\boldsymbol{\theta} = (\mu, \phi)^\top$ and use standard
+results for linear regression to obtain the required marginal
+distribution.
 
 That the prior is Normal Inverse Gamma (${\cal{NIG}}$) means
 
 $$
 \begin{aligned}
-\boldsymbol{\theta} \, | \, \tau^2 & \sim {\cal{N}}(\boldsymbol{\theta}_0, V_0) \\
+\boldsymbol{\theta} \, | \, \tau^2 & \sim {\cal{N}}(\boldsymbol{\theta}_0, \tau^2 V_0) \\
 \tau^2                             & \sim {\cal{IG}}(\nu_0 / 2, \nu_0 s_0^2 / 2)
 \end{aligned}
 $$
@@ -172,7 +177,7 @@ $$
 \begin{matrix}
 \mu_n = \Lambda_n^{-1}({X_n}^{\top}{X_n}\hat{\boldsymbol{\beta}}_n + \Lambda_0\mu_0) &
 \textrm{where} &
-\hat{\boldsymbol\beta}_n = (\boldsymbol{X}_n^{\rm T}\boldsymbol{X}_n)^{-1}\boldsymbol{X}_n^{\rm T}\boldsymbol{y}_n
+\hat{\boldsymbol\beta}_n = ({X}_n^{\rm T}{X}_n)^{-1}{X}_n^{\rm T}\boldsymbol{y}_n
 \end{matrix}
 $$
 
@@ -201,8 +206,8 @@ Furthermore
 
 $$
 \Lambda_{n}\mu_{n} =
-\boldsymbol{X}_{n}^{\rm T}\boldsymbol{y}_{n} + \Lambda_0\mu_0 =
-\boldsymbol{X}_{n-1}^{\rm T}\boldsymbol{y}_{n-1} + \boldsymbol{x}_n^\top y_n + \Lambda_0\mu_0 =
+{X}_{n}^{\rm T}\boldsymbol{y}_{n} + \Lambda_0\mu_0 =
+{X}_{n-1}^{\rm T}\boldsymbol{y}_{n-1} + \boldsymbol{x}_n^\top y_n + \Lambda_0\mu_0 =
 \Lambda_{n-1}\mu_{n-1} + \boldsymbol{x}_n^\top y_n
 $$
 
@@ -243,7 +248,7 @@ $$
 \begin{matrix}
 \mu_n = (\Lambda_n)^{-1}({X_n}^{\top}{X_n}\hat{\boldsymbol{\beta}}_n + \Lambda_0\mu_0) &
 \textrm{where} &
-\hat{\boldsymbol\beta}_n = (\boldsymbol{X}_n^{\rm T}\boldsymbol{X}_n)^{-1}\boldsymbol{X}_n^{\rm T}\boldsymbol{x}_{2:n+1}
+\hat{\boldsymbol\beta}_n = ({X}_n^{\rm T}{X}_n)^{-1}{X}_n^{\rm T}\boldsymbol{x}_{1:n}
 \end{matrix}
 $$
 
@@ -251,7 +256,7 @@ $$
 \begin{matrix}
 a_n = \frac{n}{2} + a_0 & \quad &
 b_n = b_0 +
-      \frac{1}{2}(\boldsymbol{x}_{2:n+1}^\top\boldsymbol{x}_{2:n+1} +
+      \frac{1}{2}(\boldsymbol{x}_{1:n}^\top\boldsymbol{x}_{1:n} +
                   \boldsymbol{\mu}_0^\top\Lambda_0\boldsymbol{\mu}_0 -
                   \boldsymbol{\mu}_n^\top\Lambda_n\boldsymbol{\mu}_n)
 \end{matrix}
@@ -275,7 +280,7 @@ $$
 \begin{matrix}
 \mu_n = (\Lambda_n)^{-1}({H_n}^{\top}{H_n}\hat{\boldsymbol{\theta}}_n + \Lambda_0\mu_0) &
 \textrm{where} &
-\hat{\boldsymbol\theta}_n = (\boldsymbol{X}_n^{\rm T}\boldsymbol{X}_n)^{-1}\boldsymbol{X}_n^{\rm T}\boldsymbol{x}_{2:n+1}
+\hat{\boldsymbol\theta}_n = ({H}_n^{\rm T}{H}_n)^{-1}{H}_n^{\rm T}\boldsymbol{x}_{1:n}
 \end{matrix}
 $$
 
@@ -283,11 +288,15 @@ $$
 \begin{matrix}
 a_n = \frac{n}{2} + a_0 & \quad &
 b_n = b_0 +
-      \frac{1}{2}(\boldsymbol{x}_{2:n+1}^\top\boldsymbol{x}_{2:n+1} +
+      \frac{1}{2}(\boldsymbol{x}_{1:n}^\top\boldsymbol{x}_{1:n} +
                   \boldsymbol{\mu}_0^\top\Lambda_0\boldsymbol{\mu}_0 -
                   \boldsymbol{\mu}_n^\top\Lambda_n\boldsymbol{\mu}_n)
 \end{matrix}
 $$
+
+Sample from $\condprob{p}{\boldsymbol{\theta},
+\tau^2}{\boldsymbol{h}, \boldsymbol{y}} \sim
+{\mathcal{NIG}}(\boldsymbol{\theta}_1, V_1, \nu_1, s_1^2)$
 
 We can implement this in Haskell as
 
@@ -300,7 +309,7 @@ We can implement this in Haskell as
 >   let n = natVal (Proxy :: Proxy n)
 >       a_n = 0.5 * (a_0 + fromIntegral n)
 >       bigLambda_n = bigLambda_0 + (tr bigX) <> bigX
->       invBigLambda_n = sinv bigLambda_n
+>       invBigLambda_n = inv bigLambda_n
 >       theta_n = invBigLambda_n #> ((tr bigX) #> y + (tr bigLambda_0) #> theta_0)
 >       b_0 = 0.5 * a_0 * s_02
 >       b_n = b_0 +
@@ -321,44 +330,10 @@ We can implement this in Haskell as
 Marginal Distribution for State
 ===============================
 
-From the state equation, we have
+Marginal for $H_0$
+------------------
 
-$$
-\begin{align}
-H_{t+1} &=  \mu + \phi H_{t} + \tau \eta_t \\ 
-\phi^2 H_{t} &=  -\phi\mu + \phi H_{t+1} - \phi \tau \eta_t \\ 
-\end{align}
-$$
-
-We also have
-
-$$
-\begin{align}
-H_{t} &=  \mu + \phi H_{t-1} + \tau \eta_{t-1} \\ 
-\end{align}
-$$
-
-Adding the two expressions together gives
-
-$$
-\begin{align}
-(1 + \phi^2)H_{t} &= \phi (H_{t-1} + H_{t+1}) + \mu (1 - \phi) + \tau(\eta_{t-1} - \phi\eta_t) \\
-H_{t} &= \frac{\phi}{1 + \phi^2} (H_{t-1} + H_{t+1}) + \mu \frac{1 - \phi}{1 + \phi^2} + \frac{\tau}{1 + \phi^2}(\eta_{t-1} - \phi\eta_t) \\
-\end{align}
-$$
-
-Since $\{\eta_t\}$ are standard normal, then $H_t$ conditional on
-$H_{t-1}$ and $H_{t+1}$ is normally distributed, and
-
-$$
-\begin{align}
-\mathbb{E}(H_n\mid H_{n-1}, H_{n+1}) &= \frac{1 - \phi}{1+\phi^2}\mu +
-                                        \frac{\phi}{1+\phi^2}(H_{n-1} + H_{n+1}) \\
-\mathbb{V}(H_n\mid H_{n-1}, H_{n+1}) &= \frac{\tau^2}{1+\phi^2}
-\end{align}
-$$
-
-Another standard result about [conjugate
+Using a standard result about [conjugate
 priors](https://idontgetoutmuch.wordpress.com/2014/03/20/bayesian-analysis-a-conjugate-prior-and-markov-chain-monte-carlo/) and since we have
 
 $$
@@ -374,11 +349,64 @@ $$
 where
 
 $$
-\begin{align}
+\begin{aligned}
 \frac{1}{C_1} &= \frac{1}{C_0} + \frac{\phi^2}{\tau^2} \\
 \frac{m_1}{C_1} &= \frac{m_0}{C_0} + \frac{\phi(h_1 - \mu)}{\tau^2}
-\end{align}
+\end{aligned}
 $$
+
+> sampleH0 :: Double ->
+>             Double ->
+>             V.Vector Double ->
+>             Double ->
+>             Double ->
+>             Double ->
+>             RVarT m Double
+> sampleH0 iC0 iC0m0 hs mu phi tau2 = do
+>   let var = recip $ (iC0 + phi^2 / tau2)
+>       mean = var * (iC0m0 + phi * ((hs V.! 0) - mu) / tau2)
+>   rvarT (Normal mean (sqrt var))
+
+Marginal for $H_1 \ldots H_n$
+-----------------------------
+
+From the state equation, we have
+
+$$
+\begin{aligned}
+H_{t+1} &=  \mu + \phi H_{t} + \tau \eta_t \\
+\phi^2 H_{t} &=  -\phi\mu + \phi H_{t+1} - \phi \tau \eta_t \\
+\end{aligned}
+$$
+
+We also have
+
+$$
+\begin{aligned}
+H_{t} &=  \mu + \phi H_{t-1} + \tau \eta_{t-1} \\
+\end{aligned}
+$$
+
+Adding the two expressions together gives
+
+$$
+\begin{aligned}
+(1 + \phi^2)H_{t} &= \phi (H_{t-1} + H_{t+1}) + \mu (1 - \phi) + \tau(\eta_{t-1} - \phi\eta_t) \\
+H_{t} &= \frac{\phi}{1 + \phi^2} (H_{t-1} + H_{t+1}) + \mu \frac{1 - \phi}{1 + \phi^2} + \frac{\tau}{1 + \phi^2}(\eta_{t-1} - \phi\eta_t) \\
+\end{aligned}
+$$
+
+Since $\{\eta_t\}$ are standard normal, then $H_t$ conditional on
+$H_{t-1}$ and $H_{t+1}$ is normally distributed, and
+
+$$
+\begin{aligned}
+\mathbb{E}(H_n\mid H_{n-1}, H_{n+1}) &= \frac{1 - \phi}{1+\phi^2}\mu +
+                                        \frac{\phi}{1+\phi^2}(H_{n-1} + H_{n+1}) \\
+\mathbb{V}(H_n\mid H_{n-1}, H_{n+1}) &= \frac{\tau^2}{1+\phi^2}
+\end{aligned}
+$$
+
 
 We also have
 
@@ -414,13 +442,16 @@ function of a normal distribution.
 
 We can sample from this using [Metropolis](http://en.wikipedia.org/wiki/Metropolis–Hastings_algorithm)
 
-1. For each $t=0, \ldots, n+1$, compute the acceptance probability
+1. For each $t$, sample $h_t^\flat$ from ${\cal{N}}(h_t, \gamma^2)$ where $\gamma^2$
+is the tuning variance.
+
+2. For each $t=1, \ldots, n$, compute the acceptance probability
 
 $$
 p_t = \min{\Bigg(\frac{f_{\cal{N}}(h^\flat_t;\mu_t,\nu_t^2) f_{\cal{N}}(y_t;0,e^{h^\flat_t})}{f_{\cal{N}}(h_t;\mu_t,\nu_t^2) f_{\cal{N}}(y_t;0,e^{h_t})}, 1 \Bigg)}
 $$
 
-2. For each $t$, compute a new value of $h_t$
+3. For each $t$, compute a new value of $h_t$
 
 $$
 h^\sharp_t =
@@ -461,31 +492,27 @@ $$
 Markov Chain Monte Carlo
 ========================
 
-Now we can write down a single step for our Gibbs sampler. Steps 1 - 3
-specify the Metropolis step within this.
+Now we can write down a single step for our Gibbs sampler, sampling
+from each marginal in turn.
 
-1. For each $t$, sample $h_t^\flat$ from ${\cal{N}}(h_t, \gamma^2)$ where $\gamma^2$
-is the tuning variance.
-
-2. For each $t$, compute the acceptance probability
-
-$$
-p_t = \min{\Bigg(\frac{f_{\cal{N}}(h^\flat_t;\mu_t,\nu_t^2) f_{\cal{N}}(y_t;0,e^{h^\flat_t})}{f_{\cal{N}}(h_t;\mu_t,\nu_t^2) f_{\cal{N}}(y_t;0,e^{h_t})}, 1 \Bigg)}
-$$
-
-3. For each $t$, compute a new value of $h_t$
-
-$$
-h^\sharp_t =
-\begin{cases}
-h^\flat_t \text{with probability } p_t \\
-h_t \text{with probability } 1 - p_t
-\end{cases}
-$$
-
-4. Sample from $\condprob{p}{\boldsymbol{\theta},
-\tau^2}{\boldsymbol{h}, \boldsymbol{y}} \sim
-{\mathcal{NIG}}(\boldsymbol{\theta}_1, V_1, \nu_1, s_1^2)$
+> singleStep :: Double -> V.Vector Double ->
+>               (Double, Double, Double, Double, V.Vector Double) ->
+>               StatsM (Double, Double, Double, Double, V.Vector Double)
+> singleStep vh y (mu, phi, tau2, h0, h) = do
+>   lift $ tell [((mu, phi),tau2)]
+>   hNew <- metropolis y mu phi tau2 h0 h vh
+>   h0New <- sampleH0 iC0 iC0m0 hNew mu phi tau2
+>   let bigX' = (S.col $ S.vector $ replicate n 1.0)
+>               |||
+>               (S.col $ S.vector $ V.toList $ h0New `V.cons` V.init hNew)
+>       bigX =  bigX' `asTypeOf` (snd $ valAndType nT)
+>   newParms <- sampleParms (S.vector $ V.toList h) bigX (S.vector [mu0, phi0]) invBigV0 nu0 s02
+>   return ( (S.extract (fst newParms))!0
+>          , (S.extract (fst newParms))!1
+>          , snd newParms
+>          , h0New
+>          , hNew
+>          )
 
 Testing
 =======
@@ -502,7 +529,7 @@ We need to create a statically typed matrix with one dimension the
 same size as the data so we tie the data size value to the required
 type.
 
-> nT :: Proxy 5000
+> nT :: Proxy 500
 > nT = Proxy
 
 > valAndType :: KnownNat n => Proxy n -> (Int, S.L n 2)
@@ -559,85 +586,81 @@ import StochVolChart
 dia = diag 1.0 "Log Return" (zip (map fromIntegral [0..]) (toList ys))
 ```
 
+We start with a vague prior for $H_0$
+
 > m0, c0 :: Double
 > m0 = 0.0
 > c0 = 100.0
 
-FIXME: Why start the sampler with the values of the simulated process?
+For convenience
+
+> iC0, iC0m0 :: Double
+> iC0 = recip c0
+> iC0m0  = iC0 * m0
+
+Rather than really sample from priors for $\mu, \phi$ and $\tau^2$ let
+us cheat and assume we sampled the simulated values!
 
 > mu0, phi0, tau20 :: Double
-> mu0   = -0.1 -- -0.00645
-> phi0  =  0.95 -- 0.99
-> tau20 =  0.5 -- 0.15^2
+> mu0   = -0.00645
+> phi0  =  0.99
+> tau20 =  0.15^2
+
+But that we are still very uncertain about them
 
 > bigV0, invBigV0 :: S.Sq 2
 > bigV0 = S.diag $ S.fromList [100.0, 100.0]
-> invBigV0 = sinv bigV0
+> invBigV0 = inv bigV0
 
 > nu0, s02 :: Double
 > nu0    = 10.0
 > s02    = (nu0 - 2) / nu0 * tau20
+
+Note that for the [inverse
+gamma](en.wikipedia.org/wiki/Inverse-gamma_distribution) this gives
+
+> expectationTau2, varianceTau2 :: Double
+> expectationTau2 = (nu0 * s02 / 2) / ((nu0 / 2) - 1)
+> varianceTau2 = (nu0 * s02 / 2)^2 / (((nu0 / 2) - 1)^2 * ((nu0 / 2) - 2))
+
+    [ghci]
+    expectationTau2
+    varianceTau2
+
+Running the Markov Chain
+------------------------
 
 Tuning parameter
 
 > vh :: Double
 > vh = 0.1
 
-General MCMC setup
-------------------
+The burn-in and sample sizes may be too low for actual estimation but
+will suffice for a demonstration.
 
 > bigM, bigM0 :: Int
 > bigM0 = 2000
-> bigM  = 3000
+> bigM  = 2000
 
-> iC0 :: Double
-> iC0 = recip c0
-
-> iC0m0 :: Double
-> iC0m0  = iC0 * m0
-
-> type StatsM a = RVarT (Writer [((Double, Double), Double)]) a
-
-> (|||) :: (KnownNat ((+) r1 r2), KnownNat r2, KnownNat c, KnownNat r1) =>
->          S.L c r1 -> S.L c r2 -> S.L c ((+) r1 r2)
-> (|||) = (S.¦)
+> multiStep :: StatsM (Double, Double, Double, Double, V.Vector Double)
+> multiStep = iterateM_ (singleStep vh ys) (mu0, phi0, tau20, h0, vols)
 
 > runMC :: [((Double, Double), Double)]
 > runMC = take bigM $ drop bigM0 $
 >         execWriter (evalStateT (sample multiStep) (pureMT 42))
 
-> multiStep :: StatsM (Double, Double, Double, Double, V.Vector Double)
-> multiStep = iterateM_ (singleStep vh ys) (mu0, phi0, tau20, h0, vols)
-
-> singleStep :: Double -> V.Vector Double ->
->               (Double, Double, Double, Double, V.Vector Double) ->
->               StatsM (Double, Double, Double, Double, V.Vector Double)
-> singleStep vh y (mu, phi, tau2, h0, h) = do
->   lift $ tell [((mu, phi),tau2)]
->   hNew <- metropolis y mu phi tau2 h0 h vh
->   let var = recip $ (iC0 + phi^2 / tau2)
->       mean = var * (iC0m0 + phi * ((hNew V.! 0) - mu) / tau2)
->   h0New <- rvarT (Normal mean (sqrt var))
->   let bigX' = (S.col $ S.vector $ replicate n 1.0)
->               |||
->               (S.col $ S.vector $ V.toList $ h0 `V.cons` V.init hNew)
->       bigX =  bigX' `asTypeOf` (snd $ valAndType nT)
->   newParms <- sampleParms (S.vector $ V.toList h) bigX (S.vector [mu0, phi0]) invBigV0 nu0 s02
->   return ( (S.extract (fst newParms))!0
->          , (S.extract (fst newParms))!1
->          , snd newParms
->          , h0New
->          , hNew
->          )
-
-
+And now we can look at the distributions of our estimates
 
 ```{.dia height='600'}
 dia = image (DImage (ImageRef "mus.png") 600 600 (translationX 0.0))
 ```
 
-```{.dia height='400'}
-dia = image (DImage (ImageRef "phis.png") 400 400 (translationX 0.0))
+```{.dia height='600'}
+dia = image (DImage (ImageRef "phis.png") 600 600 (translationX 0.0))
+```
+
+```{.dia height='600'}
+dia = image (DImage (ImageRef "taus.png") 600 600 (translationX 0.0))
 ```
 
 Bibliography
