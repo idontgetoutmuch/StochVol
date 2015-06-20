@@ -8,13 +8,21 @@
 bibliography: Bayesian.bib
 ---
 
-Markov Process and Chains
-=========================
+Introduction
+============
+
 
 If you look at the [wikipedia
 article](http://en.wikipedia.org/wiki/Hidden_Markov_model) on Hidden
-Markov Models then you might be forgiven for concluding that these
-deal only with discrete time and finite state spaces.
+Markov Models (HMMs) then you might be forgiven for concluding that
+these deal only with discrete time and finite state spaces. In fact,
+HMMs are much more general. Furthermore, a better understanding of
+such models can be helped by putting them into context. Before
+actually specifying what an HMM is, let us review something of Markov
+processes. A subsequent blog post will cover HMMs themselves.
+
+Markov Process and Chains
+=========================
 
 Recall that a **transition kernel** is a mapping $\mu : X \times {\cal{Y}}
 \rightarrow \overline{\mathbb{R}}_{+}$ where $(X, {\cal{X}})$ and $(Y,
@@ -56,10 +64,13 @@ $$
 which we recognise as a restatement of how Markov transition matrices
 combine.
 
-Dynamical Systems
-=================
+Some Examples
+=============
 
-A dynamical system can be formulated as a dynamical system with a
+A Fully Deterministic System
+----------------------------
+
+A deterministic system can be formulated as a Markov process with a
 particularly simple transition kernel given by
 
 $$
@@ -76,30 +87,14 @@ where $f_t$ is the deterministic state update function (the flow) and
 $\delta$ is the Dirac delta function.
 
 Parameters
-==========
+----------
 
-Now let's add parameters to the dynamical system. Particle filters
-work badly if we assume that the parameters are fixed; at some point
-we end up with just one value for all the particles. Thus we pretend
-that each parameter is not quite fixed but undergoes a small Brownian
-motion or diffusion. This is called regularization in some of the
-literature.
-
-Using Greek letters for the parameters (and Roman letters for state),
-we can write this more precisely as a transition kernel.
-
-$$
-\begin{equation}
-\mu_t(\theta_s, {\mathrm{d}\phi}) =
-\condprob{{\cal{N}}}{{\mathrm{d}\phi}}{\theta_s, \sigma^2(t-s)}
-\end{equation}
-$$
-
-where we use e.g. ${\mathrm{d}\phi}$ to indicate probability densities.
-
-Now suppose we believe that our parameters actually change over time
-then as well as regularisation (which we use to make the particle
-filter behave nicely) we could write
+Let us suppose that the determinstic system is depend on some
+time-varying values for which we we are unable or unwish to specify a
+deterministic model. For example, we may be considering [predator-prey
+model](https://en.wikipedia.org/wiki/Lotka%E2%80%93Volterra_equation)
+where the parameters cannot explain every aspect. We could augment the
+deterministic kernel in the previous example with
 
 $$
 \begin{equation}
@@ -108,14 +103,21 @@ $$
 \end{equation}
 $$
 
-This is *identical* to the regularisation equation but now we are
-using it to describe our view on how parameters evolve rather than as
-a particle filter trick.
+where we use Greek letters for the parameters (and Roman letters for
+state) and we use e.g. ${\mathrm{d}\phi}$ to indicate probability
+densities. In other words that the parameters tend to wiggle around
+like [Brown's pollen
+particles](https://en.wikipedia.org/wiki/Brownian_motion) rather than
+remaining absolutely fixed.
+
+Ornstein-Uhlenbeck
+------------------
 
 Of course Brownian motion or diffusion may not be a good model for our
 parameters; with Brownian motion, the parameters could drift off to
 $\pm\infty$. We might believe that our parameters tend to stay close
-to some given value and use the Ornstein-Uhlenbeck kernel.
+to some given value (mean-reverting) and use the Ornstein-Uhlenbeck
+kernel.
 
 $$
 \mu_t(\theta_s, {\mathrm{d}\phi}) =
@@ -142,39 +144,18 @@ $$
 
 where $W_t$ is the Wiener process.
 
-Other
-=====
-From wikipedia
-
-$$
-\mathrm{d}x_t = \theta(\mu - x_t)\mathrm{d}t + \sigma\mathrm{d}W_t
-$$
-
-From Jeff's email
-
-The OU update equations themselves are very straightforward, and are
-given in terms of simple parameters $\lambda$ and $\sigma$.  The OU solves
-the Ito SDE:
-
-$$
-\mathrm{d}X_t = -\lambda X_t\mathrm{d}t + \sqrt{2\lambda}\sigma\mathrm{d}W_t
-\quad
-X_0 \sim {\cal{N}}(0,\sigma^2)
-$$
-
-From Susanne
-
-$$
-\mathrm{d}X_t = -\beta(X_t - \alpha)\mathrm{d}t + \sigma\mathrm{d}W_t
-$$
-
-In integral form
+Let us check that the latter stochastic differential equation gives
+the stated kernel. Re-writing it in integral form and without loss of
+generality taking $s= 0$
 
 $$
 X_t = \alpha + (x_0 - \alpha)e^{-\beta t} + \sigma\int_0^t e^{-\beta(t - s)}\mathrm{d}W_s
 $$
 
-Assume without loss of generality that $s = 0$ then
+Since the integral is of a deterministic function, the distribution of
+$X_t$ is normal. Thus we need only calculate the mean and variance.
+
+The mean is straightforward.
 
 $$
 \mathbb{E}[X_t \,\vert\, X_0 = x_0] =
@@ -182,28 +163,7 @@ $$
 \alpha + (x_0 - \alpha)e^{-\beta t}
 $$
 
-and
-
-$$
-\mathbb{V}[X_t \,\vert\, X_0 = x_0] =
-\mathbb{E}\Bigg[\Bigg( \sigma\int_0^t e^{-\beta(t - s)}\mathrm{d}W_s  \Bigg)^2\Bigg]
-$$
-
-Using the [[http://en.wikipedia.org/wiki/It%C5%8D_isometry][Ito Isometry]]
-
-$$
-\mathbb{V}[X_t \,\vert\, X_0 = x_0] =
-\sigma^2 \mathbb{E}\Bigg[ \int_0^t e^{-2\beta(t-s)}\mathrm{d}s  \Bigg] =
-\frac{\sigma^2}{2\beta}\big(1 - e^{-2\beta t}\big)
-$$
-
-Summarising
-
-$$
-X_t \,\vert\, X_0 = x_0 \sim {\cal{N}}\bigg(\alpha + (x_0 - \alpha)e^{-\beta t},\frac{\sigma^2}{2\beta}\big(1 - e^{-2\beta t}\big)\bigg)
-$$
-
-Perhaps we can generalise slightly? Without loss of generality assume $t \leq u$
+Without loss of generality assume $t \leq u$ and writing $\mathbb{C}$ for covariance
 
 $$
 \begin{aligned}
@@ -221,7 +181,8 @@ $$
 \end{aligned}
 $$
 
-And now we can use Ito and independence
+And now we can use
+[Ito](http://en.wikipedia.org/wiki/It%C5%8D_isometry) and independence
 
 $$
 \begin{aligned}
@@ -231,6 +192,8 @@ $$
 \frac{\sigma^2e^{-\beta(u + t)}}{2\beta}\big(e^{2\beta t} - 1\big)
 \end{aligned}
 $$
+
+Substituting in $t = u$ gives the desired result.
 
 Bibliography
 ============
